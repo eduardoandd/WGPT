@@ -28,6 +28,29 @@ const seversConfig: ClientConfig = {
             command: "npx",
             args: ["tsx", "./src/servers/ingest-pdf.ts"],
             env: {
+                ...process.env,
+                OPENAI_API_KEY: process.env.OPENAI_API_KEY || "",
+                QDRANT_URL: process.env.QDRANT_URL || "",
+                QDRANT_API_KEY: process.env.QDRANT_API_KEY || "",
+            }
+        },
+        retrieverPdf: {
+            transport: "stdio",
+            command: "npx",
+            args: ["tsx", "./src/servers/retriever-pdf.ts"],
+            env: {
+                ...process.env,
+                OPENAI_API_KEY: process.env.OPENAI_API_KEY || "",
+                QDRANT_URL: process.env.QDRANT_URL || "",
+                QDRANT_API_KEY: process.env.QDRANT_API_KEY || "",
+            }
+        },
+        librarian: {
+            transport: "stdio",
+            command: "npx",
+            args: ["tsx", "./src/servers/librarian.ts"],
+            env: {
+                ...process.env,
                 OPENAI_API_KEY: process.env.OPENAI_API_KEY || "",
                 QDRANT_URL: process.env.QDRANT_URL || "",
                 QDRANT_API_KEY: process.env.QDRANT_API_KEY || "",
@@ -68,6 +91,8 @@ async function runClient() {
             Pode responder dúvidas do usuário buscando informações no banco de dados,
             ingerir ou buscar embeddings de diferentes tipos de arquivos, e consultar o catálogo de arquivos salvos.
             Perante o contexto da conversa, escolha qual ferramenta utilizar.
+            Se você não tiver certeza de qual fonte de dados o usuário está falando, primeiro use a 
+            ferramenta list_my_files, se ainda sim não tiver certeza, pergunte.
         `
     });
 
@@ -187,7 +212,7 @@ async function connectToWhatsApp() {
                     console.log(`✅ Arquivo salvo temporariamente em: ${filePath}`);
 
 
-                    messageToAgent = `[SISTEMA]: O usuário enviou um arquivo PDF. O arquivo já foi baixado e salvo localmente no caminho: ${filePath}. O número do usuário é ${remoteJid}. Por favor, utilize a ferramenta 'ingest-pdf' para processar os embeddings deste arquivo. Use exatamente o nome "${originalFileName}" no parâmetro 'fileName' da ferramenta.`;
+                    messageToAgent = `[SISTEMA]: O usuário enviou um arquivo PDF. O arquivo já foi baixado e salvo localmente no caminho: ${filePath}. O número do usuário é ${remoteJid}. Por favor, utilize a ferramenta 'ingest-pdf' para processar os embeddings deste arquivo. Use exatamente o nome "${originalFileName}" no parâmetro 'fileName' da ferramenta. Depois execute a ferramenta retriever-pdf para dar um breve resumo sobre esse arquivo.`;
 
 
                 } catch (error) {

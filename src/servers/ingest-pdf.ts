@@ -9,6 +9,7 @@ import { qdrantClient, qdrantVectorStore } from "../utils/store.js";
 import { smallOpenAiEmbedding } from "../utils/embeddings.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import "dotenv/config";
+import { getDb } from "../utils/database.js";
 
 const server = new Server(
     { name: "ingest-pdf", version: "2.0.0" },
@@ -159,6 +160,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
 
                 await ensureCollectionIndexes();
+
+                const db = await getDb()
+                const today = new Date().toISOString()
+                await db.run(
+                    'INSERT INTO librarian (userPhoneNumber, fileName, uploadDate, shortSummary,extension) VALUES (?, ?, ?, ?,?)',
+                    [userPhoneNumber,fileName,today, response.content,'pdf']
+                )
 
                 return {
                     content: [
