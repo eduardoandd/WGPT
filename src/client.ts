@@ -64,7 +64,6 @@ const seversConfig: ClientConfig = {
 let client: MultiServerMCPClient // cliente
 let agent: any = null;
 const AUTH_FOLDER = 'auth_info_baileys';
-const MEU_NUMERO_PESSOAL = '5511993582674@s.whatsapp.net';
 
 
 
@@ -101,17 +100,17 @@ async function runClient() {
 
 async function connectToWhatsApp() {
 
-    const { state, saveCreds } = await useMultiFileAuthState(AUTH_FOLDER); // defini dados da sessão.
+    const { state, saveCreds } = await useMultiFileAuthState(AUTH_FOLDER); // define dados da sessão.
     const { version, isLatest } = await fetchLatestBaileysVersion(); // consulta os servidores do wpp para atualizar os protocolos
 
     console.log(`[Baileys] Usando a versão do WhatsApp: ${version.join('.')}, isLatest: ${isLatest}`);
 
-    // instanciado conexão
+    // instanciando conexão
     const sock = makeWASocket({
         version, // versão do protocolo
         auth: state, // sessão
         printQRInTerminal: false,
-        syncFullHistory: false, // desliga sicronização de msg antiga para ficar mais rápido
+        syncFullHistory: false, // desliga sincronização de msg antiga para ficar mais rápido
         browser: Browsers.ubuntu("Chrome")
     })
 
@@ -142,38 +141,46 @@ async function connectToWhatsApp() {
 
         }
         else if (connection === 'open') {
-            console.log('✅ SESSÃO DO WHATSAPP ESTABELECIDA! 🚀 Aguardando suas mensagens...');
+            console.log('✅ SESSÃO DO WHATSAPP ESTABELECIDA! 🚀 Aguardando as mensagens dos clientes...');
 
         }
-
 
     })
 
     // sempre que os dados da sessão ou criptografia mudar
     sock.ev.on('creds.update', saveCreds)
 
-
-    //
+    // escuta o recebimento de mensagens
     sock.ev.on('messages.upsert', async (m: any) => {
 
-        // ignora evento vazios
+        // ignora eventos vazios
         if (!m.messages || m.messages.length === 0) return
 
         const msg = m.messages[0] // objeto conversa
-        const remoteJid = msg.key.remoteJid // ignora status (stories)
+        
+        // 1. CHAT ID: É para onde devemos enviar a resposta (Pode ser @lid ou @s.whatsapp.net)
+        const chatId = msg.key.remoteJid!; 
 
-        if (!msg.message || remoteJid === 'status@broadcast') return; //?
-        if (remoteJid?.endsWith('@g.us')) return; //?
+        // Ignora status (stories)
+        if (!msg.message || chatId === 'status@broadcast') return;
+        
+        // Ignora mensagens de grupos
+        if (chatId?.endsWith('@g.us')) return; 
 
+        // Ignora as mensagens enviadas pelo próprio bot (evita que ele converse sozinho num loop)
+        if (msg.key.fromMe) return; 
 
-        // ignora qualquer mensagem que não seja a minha
-        if (!msg.key.fromMe && remoteJid !== MEU_NUMERO_PESSOAL) {
-            console.log(`🚫 Ignorando mensagem de terceiros: ${remoteJid}`);
-            return;
+        // 2. USER ID: Tenta pegar o número real do cliente (se não achar, usa o chatId mesmo)
+        let senderInfo = msg.senderPn || msg.key.participant || msg.participant || chatId;
+        
+        if (senderInfo && !senderInfo.includes('@') && senderInfo !== chatId) {
+            senderInfo = `${senderInfo}@s.whatsapp.net`;
         }
+        
+        console.log(`\n📩 Mensagem recebida no chat: ${chatId} | Pelo utilizador: ${senderInfo}`);
 
         const isDocument = msg.message.documentMessage // verifica se é documento
-        const reciveText = msg.message.conversation || msg.message.extendedTextMessage?.text; // ?
+        const reciveText = msg.message.conversation || msg.message.extendedTextMessage?.text; 
 
         let messageToAgent = reciveText
 
@@ -182,13 +189,12 @@ async function connectToWhatsApp() {
         }
 
         // lógica de interceptação de PDF
-
         if (isDocument) {
 
             const mimeType = msg.message.documentMessage?.mimetype;
 
             if (mimeType === 'application/pdf') {
-                console.log("📄 PDF detectado! Iniciando download...");
+                console.log("📄 PDF detetado! A iniciar a transferência...");
 
                 try {
 
@@ -204,64 +210,53 @@ async function connectToWhatsApp() {
 
                     // captura o nome do documento
                     let originalFileName = msg.message.documentMessage?.fileName || msg.message.documentMessage?.title || `documento_sem_nome_${Date.now()}.pdf`;
-                    const safeFileName = originalFileName.replace(/[^a-zA-Z0-9.\-_]/g, '_'); // ?
+                    const safeFileName = originalFileName.replace(/[^a-zA-Z0-9.\-_]/g, '_'); 
 
                     const filePath = path.join(os.tmpdir(), safeFileName);
 
                     fs.writeFileSync(filePath, buffer as Buffer);
-                    console.log(`✅ Arquivo salvo temporariamente em: ${filePath}`);
+                    console.log(`✅ Ficheiro guardado temporariamente em: ${filePath}`);
 
-
-                    messageToAgent = `[SISTEMA]: O usuário enviou um arquivo PDF. O arquivo já foi baixado e salvo localmente no caminho: ${filePath}. O número do usuário é ${remoteJid}. Por favor, utilize a ferramenta 'ingest-pdf' para processar os embeddings deste arquivo. Use exatamente o nome "${originalFileName}" no parâmetro 'fileName' da ferramenta. Depois execute a ferramenta retriever-pdf para dar um breve resumo sobre esse arquivo.`;
-
+                    // Usa o senderInfo para o agente guardar corretamente na base de dados
+                    messageToAgent = `[SISTEMA]: O usuário enviou um arquivo PDF. O arquivo já foi baixado e salvo localmente no caminho: ${filePath}. O número do usuário é ${senderInfo}. Por favor, utilize a ferramenta 'ingest-pdf' para processar os embeddings deste arquivo. Use exatamente o nome "${originalFileName}" no parâmetro 'fileName' da ferramenta. Depois execute a ferramenta retriever-pdf para dar um breve resumo sobre esse arquivo.`;
 
                 } catch (error) {
-                    console.error("❌ Erro ao baixar ou salvar o PDF:", error);
+                    console.error("❌ Erro ao transferir ou guardar o PDF:", error);
                     messageToAgent = `[SISTEMA]: O usuário tentou enviar um arquivo PDF, mas ocorreu um erro no download. Avise-o sobre a falha.`;
                 }
 
-
             }
-
 
         }
 
         if (messageToAgent && agent) {
 
-            const sender = msg.key.remoteJid!
-            console.log(`\n📩 Processando entrada (${sender}): ${isDocument ? '[Arquivo PDF]' : reciveText}`);
+            console.log(`A processar entrada para a IA: ${isDocument ? '[Ficheiro PDF]' : reciveText}`);
 
-            await sock.sendPresenceUpdate('composing', sender)
+            // Usa o chatId para simular a ação de "a escrever..." na janela de conversa correta
+            await sock.sendPresenceUpdate('composing', chatId)
 
             try {
+                // Usa o senderInfo para manter a memória do LangChain (Contexto do Utilizador)
                 const result = await agent.invoke(
                     { messages: [new HumanMessage(messageToAgent)] },
-                    { configurable: { thread_id: sender } }
+                    { configurable: { thread_id: senderInfo } }
                 );
 
                 const aiResponse = result.messages[result.messages.length - 1].content;
 
-                await sock.sendMessage(sender, { text: `🤖 ${aiResponse}` });
-                console.log(`🤖 Respondi para (${sender})`);
-
+                // Usa o chatId para enviar a mensagem de volta
+                await sock.sendMessage(chatId, { text: `🤖 ${aiResponse}` });
+                console.log(`🤖 Respondi para o chat (${chatId})`);
 
             } catch (error) {
-                console.error("Erro ao processar IA ou conectar às ferramentas MCP:", error);
-                await sock.sendMessage(sender, { text: "🤖 Desculpe, meus sensores estão offline no momento. 🌧️" });
+                console.error("Erro ao processar IA ou a ligar às ferramentas MCP:", error);
+                await sock.sendMessage(chatId, { text: "🤖 Desculpe, os meus sensores estão offline no momento. 🌧️" });
             }
 
         }
 
-
     })
-
-
-
-
-
-
-
-
 
 }
 

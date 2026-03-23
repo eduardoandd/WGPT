@@ -172,7 +172,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     content: [
                         {
                             type: "text",
-                            text: `Sucesso! O arquivo ${fileName} foi processado.`
+                            text: `Sucesso! O arquivo ${fileName} foi processado. Aqui está o resumo gerado: ${response.content}`
                         }
                     ]
                 }

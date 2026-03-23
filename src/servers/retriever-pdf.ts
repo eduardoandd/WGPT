@@ -31,6 +31,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                         userPhoneNumber: {
                             type: "string",
                             description: "Número do contato atrelado ao PDF. Usado para filtrar a busca no banco de dados."
+                        },
+                        fileName: {
+                            type: "string",
+                            description: "Opcional. O nome exato do arquivo para restringir a busca apenas a ele."
                         }
                     },
                     required: ["query", "userPhoneNumber"]
@@ -44,23 +48,29 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     switch (request.params.name) {
 
         case "retriever-pdf": {
-            const { query, userPhoneNumber } = request.params.arguments as { query: string, userPhoneNumber: string };
+            const { query, userPhoneNumber, fileName } = request.params.arguments as { query: string, userPhoneNumber: string, fileName?: string };
 
             try {
-                // 1. Instancia a conexão com a sua collection do Qdrant
                 const vectorStore = await qdrantVectorStore("pdfs", smallOpenAiEmbedding);
+
+                const filterConditions: any[] = [
+                    {
+                        key: "metadata.userPhoneNumber",
+                        match: { value: userPhoneNumber }
+                    }
+                ];
+
+                if (fileName) {
+                    filterConditions.push({
+                        key: "metadata.fileName",
+                        match: { value: fileName }
+                    });
+                }
 
                 // 2. Faz a busca semântica! 
                 // O LangChain permite passar um filtro no 3º argumento. Vamos pedir os 4 trechos mais relevantes.
                 const searchResults = await vectorStore.similaritySearch(query, 4, {
-                    must: [
-                        {
-                            key: "metadata.userPhoneNumber",
-                            match: {
-                                value: userPhoneNumber
-                            }
-                        }
-                    ]
+                    must: filterConditions // <-- PASSE O ARRAY AQUI
                 });
                 // Se o usuário não tiver PDFs ou não achar nada parecido:
                 if (searchResults.length === 0) {
