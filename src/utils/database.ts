@@ -18,7 +18,21 @@ export async function getDb() {
             uploadDate TEXT,
             shortSummary TEXT,
             extension text
-        )
+        );
+
+        CREATE TABLE IF NOT EXISTS cnpj_searches (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            userPhoneNumber TEXT,
+            cnpj TEXT,
+            razao_social TEXT,
+            nome_fantasia TEXT,
+            cnae_descricao TEXT,
+            cnae_codigo TEXT,
+            situacao_cadastral TEXT,
+            endereco TEXT
+        );
+
+        
         
     `)
 

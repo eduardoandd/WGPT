@@ -16,6 +16,7 @@ import qrcode from 'qrcode-terminal';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
+import { getDb } from "./utils/database.js";
 
 
 
@@ -55,6 +56,30 @@ const seversConfig: ClientConfig = {
                 QDRANT_URL: process.env.QDRANT_URL || "",
                 QDRANT_API_KEY: process.env.QDRANT_API_KEY || "",
             }
+        },
+        reportGenerator: {
+            transport: "stdio",
+            command: "npx",
+            args: ["tsx", "./src/servers/generate-report.ts"],
+            env: process.env as any
+        },
+        emailSender: {
+            transport: "stdio",
+            command: "npx",
+            args: ["tsx", "./src/servers/send-email.ts"],
+            env: process.env as any
+        },
+        cnpjSearcher: {
+            transport: "stdio",
+            command: "npx",
+            args: ["tsx", "./src/servers/cnpj-search.ts"],
+            env: process.env as any
+        },
+        spreadsheetReader: {
+            transport: "stdio",
+            command: "npx",
+            args: ["tsx", "./src/servers/spreadsheet-reader.ts"],
+            env: process.env as any
         }
     },
     useStandardContentBlocks: true
@@ -92,6 +117,18 @@ async function runClient() {
             Perante o contexto da conversa, escolha qual ferramenta utilizar.
             Se você não tiver certeza de qual fonte de dados o usuário está falando, primeiro use a 
             ferramenta list_my_files, se ainda sim não tiver certeza, pergunte.
+
+            Se o usuário pedir um relatório, use a ferramenta 'generate_pdf_report'. Formate o 'markdownContent' usando Markdown, 
+            incluindo tabelas e destaques sempre que achar necessário para deixar a leitura agradável.
+
+            Se o utilizador pedir para enviar um documento ou relatório por e-mail:
+            1. Se o documento ainda não existir, use PRIMEIRO a ferramenta 'generate_pdf_report' para criá-lo.
+            2. Com o caminho do ficheiro em mãos (seja do ficheiro acabado de gerar ou de um PDF enviado pelo utilizador), use a ferramenta 'send_email' passando o caminho no 'attachmentPath'.
+            3. Após o envio bem-sucedido do e-mail, avise o utilizador de forma amigável que o e-mail foi enviado.
+
+            Se o utilizador enviar uma planilha, use a ferramenta 'read_spreadsheet' para ler os dados. Analise os 
+            valores como um especialista: encontre totais, médias, padrões ou maiores gastos. 
+            Em seguida, OBRIGATORIAMENTE gere um relatório formatado e chame a ferramenta 'generate_pdf_report' para transformar essa análise num PDF e entregá-lo ao utilizador.
         `
     });
 
@@ -157,32 +194,37 @@ async function connectToWhatsApp() {
         if (!m.messages || m.messages.length === 0) return
 
         const msg = m.messages[0] // objeto conversa
-        
+
         // 1. CHAT ID: É para onde devemos enviar a resposta (Pode ser @lid ou @s.whatsapp.net)
-        const chatId = msg.key.remoteJid!; 
+        const chatId = msg.key.remoteJid!;
 
         // Ignora status (stories)
         if (!msg.message || chatId === 'status@broadcast') return;
-        
+
         // Ignora mensagens de grupos
-        if (chatId?.endsWith('@g.us')) return; 
+        if (chatId?.endsWith('@g.us')) return;
 
         // Ignora as mensagens enviadas pelo próprio bot (evita que ele converse sozinho num loop)
-        if (msg.key.fromMe) return; 
+        if (msg.key.fromMe) return;
 
         // 2. USER ID: Tenta pegar o número real do cliente (se não achar, usa o chatId mesmo)
         let senderInfo = msg.senderPn || msg.key.participant || msg.participant || chatId;
-        
+
         if (senderInfo && !senderInfo.includes('@') && senderInfo !== chatId) {
             senderInfo = `${senderInfo}@s.whatsapp.net`;
         }
-        
+
         console.log(`\n📩 Mensagem recebida no chat: ${chatId} | Pelo utilizador: ${senderInfo}`);
 
-        const isDocument = msg.message.documentMessage // verifica se é documento
-        const reciveText = msg.message.conversation || msg.message.extendedTextMessage?.text; 
+        const documentMsg = msg.message?.documentMessage || msg.message?.documentWithCaptionMessage?.message?.documentMessage;
+        const isDocument = !!documentMsg; // Retorna true se encontrou o documento
 
-        let messageToAgent = reciveText
+        const reciveText = msg.message?.conversation ||
+            msg.message?.extendedTextMessage?.text ||
+            documentMsg?.caption;
+
+
+        let messageToAgent = `[Mensagem de: ${senderInfo}] ${reciveText}`;
 
         if (reciveText && reciveText.startsWith('🤖')) {
             return;
@@ -191,7 +233,7 @@ async function connectToWhatsApp() {
         // lógica de interceptação de PDF
         if (isDocument) {
 
-            const mimeType = msg.message.documentMessage?.mimetype;
+            const mimeType = documentMsg?.mimetype;
 
             if (mimeType === 'application/pdf') {
                 console.log("📄 PDF detetado! A iniciar a transferência...");
@@ -209,8 +251,9 @@ async function connectToWhatsApp() {
                     )
 
                     // captura o nome do documento
-                    let originalFileName = msg.message.documentMessage?.fileName || msg.message.documentMessage?.title || `documento_sem_nome_${Date.now()}.pdf`;
-                    const safeFileName = originalFileName.replace(/[^a-zA-Z0-9.\-_]/g, '_'); 
+                    let originalFileName = documentMsg?.fileName || documentMsg?.title || `documento_sem_nome_${Date.now()}.pdf`;
+
+                    const safeFileName = originalFileName.replace(/[^a-zA-Z0-9.\-_]/g, '_');
 
                     const filePath = path.join(os.tmpdir(), safeFileName);
 
@@ -225,6 +268,42 @@ async function connectToWhatsApp() {
                     messageToAgent = `[SISTEMA]: O usuário tentou enviar um arquivo PDF, mas ocorreu um erro no download. Avise-o sobre a falha.`;
                 }
 
+            }
+
+            if (
+                mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || // .xlsx
+                mimeType === 'application/vnd.ms-excel' || 
+                mimeType === 'text/csv' 
+            ) {
+                console.log("📊 Planilha detetada! A iniciar a transferência...");
+
+                try {
+                    const buffer = await downloadMediaMessage(
+                        msg,
+                        'buffer',
+                        {},
+                        { logger: console as any, reuploadRequest: sock.updateMediaMessage }
+                    );
+
+                    let originalFileName = documentMsg?.fileName || documentMsg?.title || `planilha_${Date.now()}.xlsx`;
+                    const safeFileName = originalFileName.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+                    const filePath = path.join(os.tmpdir(), safeFileName);
+
+                    fs.writeFileSync(filePath, buffer as Buffer);
+                    console.log(`✅ Planilha guardada temporariamente em: ${filePath}`);
+
+                    messageToAgent = `[SISTEMA]: O usuário enviou uma planilha salva em: ${filePath}. 
+Siga EXATAMENTE estes passos:
+1. Use a ferramenta 'read_spreadsheet' para ler os dados brutos.
+2. Analise os resultados e monte um relatório em Markdown focado em INSIGHTS (totais, médias, padrões). 
+3. ⚠️ IMPORTANTE: NÃO tente colocar a planilha inteira no Markdown. Se for criar tabelas, mostre NO MÁXIMO as 5 a 10 linhas mais relevantes (ex: Top 5 itens). Escrever textos muito grandes causará falha no sistema.
+4. Chame a ferramenta 'generate_pdf_report' passando o título, um 'fileName' (terminado em .pdf) e o Markdown gerado no parâmetro 'markdownContent'.
+O que o usuário disse: "${reciveText || 'Faça uma análise resumida desta planilha e gere o PDF'}"`;
+
+                } catch (error) {
+                    console.error("❌ Erro ao descarregar planilha:", error);
+                    messageToAgent = `[SISTEMA]: Ocorreu um erro ao descarregar a planilha do utilizador.`;
+                }
             }
 
         }
@@ -243,11 +322,37 @@ async function connectToWhatsApp() {
                     { configurable: { thread_id: senderInfo } }
                 );
 
-                const aiResponse = result.messages[result.messages.length - 1].content;
+                let aiResponse = result.messages[result.messages.length - 1].content;
 
-                // Usa o chatId para enviar a mensagem de volta
-                await sock.sendMessage(chatId, { text: `🤖 ${aiResponse}` });
-                console.log(`🤖 Respondi para o chat (${chatId})`);
+                // 1. Procura pela tag [SEND_PDF:...] na resposta da IA
+                const pdfTagRegex = /\[SEND_PDF:\s*(.+?)\]/;
+                const match = aiResponse.match(pdfTagRegex);
+
+                if (match) {
+                    const filePath = match[1].trim(); // Pega o caminho do arquivo gerado
+                    console.log(`📤 Preparando para enviar relatório PDF: ${filePath}`);
+
+                    try {
+                        // Envia o documento físico pelo WhatsApp
+                        await sock.sendMessage(chatId, {
+                            document: { url: filePath },
+                            mimetype: 'application/pdf',
+                            fileName: path.basename(filePath) || 'Relatorio.pdf'
+                        });
+                        console.log('✅ PDF enviado com sucesso para o WhatsApp!');
+                    } catch (err) {
+                        console.error('❌ Erro ao enviar o PDF pelo WhatsApp:', err);
+                    }
+
+                    // Limpa a tag [SEND_PDF:...] da resposta de texto da IA
+                    aiResponse = aiResponse.replace(pdfTagRegex, '').trim();
+                }
+
+                // 2. Só envia a mensagem de texto se sobrar algum texto após remover a tag
+                if (aiResponse.length > 0) {
+                    await sock.sendMessage(chatId, { text: `🤖 ${aiResponse}` });
+                    console.log(`🤖 Respondi texto para o chat (${chatId})`);
+                }
 
             } catch (error) {
                 console.error("Erro ao processar IA ou a ligar às ferramentas MCP:", error);
@@ -263,6 +368,7 @@ async function connectToWhatsApp() {
 async function start() {
 
     try {
+        await getDb();
         await runClient()
         await connectToWhatsApp()
     } catch (error) {
