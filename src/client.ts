@@ -17,7 +17,6 @@ import path from 'path';
 import os from 'os';
 import fs from 'fs';
 import { getDb } from "./utils/database.js";
-import http from 'http';
 
 
 // servidores disponíveis para utilizar
@@ -153,7 +152,11 @@ async function runClient() {
             uando o utilizador fornecer um Token (como JWT, Bearer), Chave de API, Hash, URL ou qualquer código longo, você DEVE copiá-lo EXATAMENTE caractere por caractere para dentro das ferramentas. 
             NÃO altere, não resuma, não adicione nem remova NENHUMA letra, número ou pontuação. A mínima alteração nesses códigos invalidará a requisição e causará erros graves no sistema.
 
-           
+           Você tem acesso direto ao banco de dados SQLite do sistema através da ferramenta 
+           'execute_sql'. Você pode fazer consultas (SELECT) para responder a perguntas 
+           analíticas ou alterações (INSERT, UPDATE, DELETE) se o usuário pedir para 
+           registrar ou modificar algo. Atenção: Se o usuário pedir para atualizar ou deletar algo, 
+           tenha absoluta certeza de usar a cláusula 'WHERE' corretamente para não apagar o banco inteiro!
             
         `
     });
@@ -177,29 +180,8 @@ async function connectToWhatsApp() {
         browser: Browsers.ubuntu("Chrome")
     })
 
-    const localServer = http.createServer((req, res) => {
-        if (req.method === 'POST' && req.url === '/bg-result') {
-            let body = '';
-            req.on('data', chunk => { body += chunk.toString(); });
-            req.on('end', async () => {
-                try {
-                    const data = JSON.parse(body);
-                    // O banco de dados terminou! Envia a mensagem direta pelo WhatsApp:
-                    await sock.sendMessage(data.userId, {
-                        text: `🤖 *Aviso do Sistema:*\nA sua análise de dados profunda terminou. Aqui estão os resultados:\n\n${data.text}`
-                    });
-                    res.writeHead(200);
-                    res.end('OK');
-                } catch (e) {
-                    console.error('Erro no Webhook interno:', e);
-                    res.writeHead(500);
-                    res.end('Erro interno');
-                }
-            });
-        }
-    });
+  
     // Inicia o servidor na porta 3333
-    localServer.listen(3333, () => console.log('📡 Webhook interno aguardando processos longos na porta 3333'));
 
 
     // escuta as mudanças de estado da sua conexão
