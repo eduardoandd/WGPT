@@ -8,6 +8,5 @@ export const fastModel = new ChatOpenAI({
     });
 export const expertModel = new ChatOpenAI({
         model: "gpt-5.2-pro",
-        temperature: 0,
         apiKey: process.env.OPENAI_API_KEY
     });

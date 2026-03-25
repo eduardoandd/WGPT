@@ -3,3 +3,5 @@ build/
 .env
 .env.*
 auth_info_baileys/
+database.sqlite
+/librarian.sqlite

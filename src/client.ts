@@ -2,7 +2,7 @@ import { ClientConfig, MultiServerMCPClient } from "@langchain/mcp-adapters";
 import "dotenv/config";
 import { MemorySaver } from "@langchain/langgraph";
 import { createAgent, HumanMessage } from "langchain";
-import { fastModel } from "./utils/models.js";
+import { expertModel, fastModel } from "./utils/models.js";
 import makeWASocket, {
     DisconnectReason,
     useMultiFileAuthState,
@@ -17,7 +17,7 @@ import path from 'path';
 import os from 'os';
 import fs from 'fs';
 import { getDb } from "./utils/database.js";
-
+import http from 'http';
 
 
 // servidores disponíveis para utilizar
@@ -80,6 +80,18 @@ const seversConfig: ClientConfig = {
             command: "npx",
             args: ["tsx", "./src/servers/spreadsheet-reader.ts"],
             env: process.env as any
+        },
+        apiTester: {
+            transport: "stdio",
+            command: "npx",
+            args: ["tsx", "./src/servers/api-tester.ts"],
+            env: process.env as any
+        },
+        sqliteManager: {
+            transport: "stdio",
+            command: "npx",
+            args: ["tsx", "./src/servers/sqlite-manager.ts"],
+            env: process.env as any
         }
     },
     useStandardContentBlocks: true
@@ -117,9 +129,14 @@ async function runClient() {
             Perante o contexto da conversa, escolha qual ferramenta utilizar.
             Se você não tiver certeza de qual fonte de dados o usuário está falando, primeiro use a 
             ferramenta list_my_files, se ainda sim não tiver certeza, pergunte.
+            Use APENAS a formatação nativa do WhatsApp: coloque palavras entre asteriscos para *negrito* e underlines para _itálico_.
+            
+            Nota: A única exceção é quando você for enviar texto para a ferramenta 'generate_pdf_report'. Dentro do parâmetro 'markdownContent' dessa ferramenta, 
+            você DEVE usar Markdown completo com tabelas. Mas no texto final que vai para o WhatsApp, use apenas texto simples.
 
             Se o usuário pedir um relatório, use a ferramenta 'generate_pdf_report'. Formate o 'markdownContent' usando Markdown, 
             incluindo tabelas e destaques sempre que achar necessário para deixar a leitura agradável.
+          
 
             Se o utilizador pedir para enviar um documento ou relatório por e-mail:
             1. Se o documento ainda não existir, use PRIMEIRO a ferramenta 'generate_pdf_report' para criá-lo.
@@ -129,6 +146,15 @@ async function runClient() {
             Se o utilizador enviar uma planilha, use a ferramenta 'read_spreadsheet' para ler os dados. Analise os 
             valores como um especialista: encontre totais, médias, padrões ou maiores gastos. 
             Em seguida, OBRIGATORIAMENTE gere um relatório formatado e chame a ferramenta 'generate_pdf_report' para transformar essa análise num PDF e entregá-lo ao utilizador.
+
+            Se o usuário pedir para fazer uma requisição, testar um endpoint, bater numa API ou agir como um Postman, use a ferramenta 
+            'make_http_request'. Forneça os resultados de forma limpa, 
+            informando o Status Code e os dados retornados. Se o retorno for grande, destaque apenas as partes principais.
+            uando o utilizador fornecer um Token (como JWT, Bearer), Chave de API, Hash, URL ou qualquer código longo, você DEVE copiá-lo EXATAMENTE caractere por caractere para dentro das ferramentas. 
+            NÃO altere, não resuma, não adicione nem remova NENHUMA letra, número ou pontuação. A mínima alteração nesses códigos invalidará a requisição e causará erros graves no sistema.
+
+           
+            
         `
     });
 
@@ -150,6 +176,30 @@ async function connectToWhatsApp() {
         syncFullHistory: false, // desliga sincronização de msg antiga para ficar mais rápido
         browser: Browsers.ubuntu("Chrome")
     })
+
+    const localServer = http.createServer((req, res) => {
+        if (req.method === 'POST' && req.url === '/bg-result') {
+            let body = '';
+            req.on('data', chunk => { body += chunk.toString(); });
+            req.on('end', async () => {
+                try {
+                    const data = JSON.parse(body);
+                    // O banco de dados terminou! Envia a mensagem direta pelo WhatsApp:
+                    await sock.sendMessage(data.userId, {
+                        text: `🤖 *Aviso do Sistema:*\nA sua análise de dados profunda terminou. Aqui estão os resultados:\n\n${data.text}`
+                    });
+                    res.writeHead(200);
+                    res.end('OK');
+                } catch (e) {
+                    console.error('Erro no Webhook interno:', e);
+                    res.writeHead(500);
+                    res.end('Erro interno');
+                }
+            });
+        }
+    });
+    // Inicia o servidor na porta 3333
+    localServer.listen(3333, () => console.log('📡 Webhook interno aguardando processos longos na porta 3333'));
 
 
     // escuta as mudanças de estado da sua conexão
@@ -272,8 +322,8 @@ async function connectToWhatsApp() {
 
             if (
                 mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || // .xlsx
-                mimeType === 'application/vnd.ms-excel' || 
-                mimeType === 'text/csv' 
+                mimeType === 'application/vnd.ms-excel' ||
+                mimeType === 'text/csv'
             ) {
                 console.log("📊 Planilha detetada! A iniciar a transferência...");
 
@@ -323,6 +373,10 @@ O que o usuário disse: "${reciveText || 'Faça uma análise resumida desta plan
                 );
 
                 let aiResponse = result.messages[result.messages.length - 1].content;
+
+                if (Array.isArray(aiResponse)) {
+                    aiResponse = aiResponse.map((block: any) => block.text || '').join('\n');
+                }
 
                 // 1. Procura pela tag [SEND_PDF:...] na resposta da IA
                 const pdfTagRegex = /\[SEND_PDF:\s*(.+?)\]/;
