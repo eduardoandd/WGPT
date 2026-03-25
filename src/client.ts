@@ -17,6 +17,7 @@ import path from 'path';
 import os from 'os';
 import fs from 'fs';
 import { getDb } from "./utils/database.js";
+import http from 'http';
 
 
 // servidores disponíveis para utilizar
@@ -86,7 +87,12 @@ const seversConfig: ClientConfig = {
             args: ["tsx", "./src/servers/api-tester.ts"],
             env: process.env as any
         },
-       
+        sqliteManager: {
+            transport: "stdio",
+            command: "npx",
+            args: ["tsx", "./src/servers/sqlite-manager.ts"],
+            env: process.env as any
+        }
     },
     useStandardContentBlocks: true
 
@@ -171,7 +177,30 @@ async function connectToWhatsApp() {
         browser: Browsers.ubuntu("Chrome")
     })
 
- 
+    const localServer = http.createServer((req, res) => {
+        if (req.method === 'POST' && req.url === '/bg-result') {
+            let body = '';
+            req.on('data', chunk => { body += chunk.toString(); });
+            req.on('end', async () => {
+                try {
+                    const data = JSON.parse(body);
+                    // O banco de dados terminou! Envia a mensagem direta pelo WhatsApp:
+                    await sock.sendMessage(data.userId, {
+                        text: `🤖 *Aviso do Sistema:*\nA sua análise de dados profunda terminou. Aqui estão os resultados:\n\n${data.text}`
+                    });
+                    res.writeHead(200);
+                    res.end('OK');
+                } catch (e) {
+                    console.error('Erro no Webhook interno:', e);
+                    res.writeHead(500);
+                    res.end('Erro interno');
+                }
+            });
+        }
+    });
+    // Inicia o servidor na porta 3333
+    localServer.listen(3333, () => console.log('📡 Webhook interno aguardando processos longos na porta 3333'));
+
 
     // escuta as mudanças de estado da sua conexão
     sock.ev.on("connection.update", (update: any) => {
