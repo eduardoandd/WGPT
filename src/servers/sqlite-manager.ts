@@ -13,11 +13,17 @@ const server = new Server({ name: "sqlite-manager", version: "1.0.0" }, { capabi
 const tasks = new Map<string, { status: string, result?: any, error?: string }>();
 
 async function getDbConnection() {
-    return open({
+    const db = await open({
         filename: path.resolve(process.cwd(), 'database.sqlite'), 
         driver: sqlite3.Database
     });
+    
+    await db.exec('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 20000;');
+    
+    return db;
 }
+
+
 
 server.setRequestHandler(ListToolsRequestSchema, async () => {
     return {
@@ -116,6 +122,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
         if (task.status === "error") {
+            tasks.delete(taskId); 
             return { 
                 content: [{ type: "text", text: `A tarefa falhou com o erro: ${task.error}` }], 
                 isError: true 
