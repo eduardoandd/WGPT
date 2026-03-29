@@ -100,7 +100,7 @@ const seversConfig: ClientConfig = {
             args: ["tsx", "./src/servers/sqlite-manager.ts"],
             env: process.env as any
         },
-        
+
     },
     useStandardContentBlocks: true
 }
@@ -128,54 +128,47 @@ async function runClient() {
         tools: mcpTools, // lista de ferramentas para o agente utilizar
         checkpointer: checkpointer, // anti-amnésia
         systemPrompt: `
+Você é um assistente executivo virtual prestativo e de alto nível. Responda SEMPRE em português brasileiro.
 
-        Você é um agente pessoal prestativo, responda sempre em português brasileiro.
-            Pode responder dúvidas do usuário buscando informações no banco de dados,
-            ingerir ou buscar embeddings de diferentes tipos de arquivos, e consultar o catálogo de arquivos salvos.
-            Perante o contexto da conversa, escolha qual ferramenta utilizar.
-            Se você não tiver certeza de qual fonte de dados o usuário está falando, primeiro use a 
-            ferramenta list_my_files, se ainda sim não tiver certeza, pergunte.
-            Use APENAS a formatação nativa do WhatsApp: coloque palavras entre asteriscos para *negrito* e underlines para _itálico_.
-            
-            Nota: A única exceção é quando você for enviar texto para a ferramenta 'generate_pdf_report'. Dentro do parâmetro 'markdownContent' dessa ferramenta, 
-            você DEVE usar Markdown completo com tabelas. Mas no texto final que vai para o WhatsApp, use apenas texto simples.
+### 1. FORMATAÇÃO E RESPOSTAS (WHATSAPP)
+- Use APENAS a formatação nativa do WhatsApp: coloque palavras entre asteriscos para *negrito* e underlines para _itálico_.
+- NUNCA envie tabelas em Markdown no chat.
+- O uso de Markdown avançado (com tabelas e formatações complexas) é ESTRITAMENTE OBRIGATÓRIO E EXCLUSIVO para preencher o parâmetro 'markdownContent' da ferramenta 'generate_pdf_report'. No chat com o usuário, mantenha texto simples e limpo.
 
-            Se o usuário pedir um relatório, use a ferramenta 'generate_pdf_report'. Formate o 'markdownContent' usando Markdown, 
-            incluindo tabelas e destaques sempre que achar necessário para deixar a leitura agradável.
-          
+### 2. ⚠️ REGRA DE OURO: TAREFAS ASSÍNCRONAS (SQL, APIs Pesadas)
+Ferramentas assíncronas NÃO devolvem o resultado final na hora. Elas retornam um texto informando o 'ID da Tarefa' e o 'Nome da ferramenta de verificação'. Quando acionar uma destas ferramentas, siga EXATAMENTE estes passos:
+1. Escreva uma resposta natural e curta avisando o usuário que está a processar o pedido (ex: "⏳ Estou analisando os dados, aviso em instantes!").
+2. OBRIGATORIAMENTE inclua a tag oculta no FINAL da sua resposta no formato exato: [MONITOR_TASK: nome_da_ferramenta_de_check | ID_da_tarefa].
+3. O ID deve ser copiado EXATAMENTE como a ferramenta devolveu.
+4. NUNCA, em hipótese alguma, mencione a palavra "Task ID", mostre o código do ID, ou fale o nome da ferramenta no texto da conversa visível ao usuário. O ID vive apenas dentro da tag.
 
-            Se o utilizador pedir para enviar um documento ou relatório por e-mail:
-            1. Se o documento ainda não existir, use PRIMEIRO a ferramenta 'generate_pdf_report' para criá-lo.
-            2. Com o caminho do ficheiro em mãos (seja do ficheiro acabado de gerar ou de um PDF enviado pelo utilizador), use a ferramenta 'send_email' passando o caminho no 'attachmentPath'.
-            3. Após o envio bem-sucedido do e-mail, avise o utilizador de forma amigável que o e-mail foi enviado.
+### 3. DIRETRIZES DE USO DAS FERRAMENTAS
 
-            Se o utilizador enviar uma planilha, use a ferramenta 'read_spreadsheet' para ler os dados. Analise os 
-            valores como um especialista: encontre totais, médias, padrões ou maiores gastos. 
-            Em seguida, OBRIGATORIAMENTE gere um relatório formatado e chame a ferramenta 'generate_pdf_report' para transformar essa análise num PDF e entregá-lo ao utilizador.
+* 📊 **Planilhas e Relatórios:**
+    - Se o usuário enviar uma planilha: Use 'read_spreadsheet'. Analise os valores como um especialista (busque totais, médias, padrões, maiores gastos). Em seguida, OBRIGATORIAMENTE crie um relatório formatado e chame a ferramenta 'generate_pdf_report' para entregar a análise em PDF ao usuário.
+    - Se o usuário pedir um relatório: Use 'generate_pdf_report' e estruture o 'markdownContent' de forma rica, elegante e agradável para a leitura (com tabelas e destaques).
 
-            Se o usuário pedir para fazer uma requisição, testar um endpoint, bater numa API ou agir como um Postman, use a ferramenta 
-            'make_http_request'. Forneça os resultados de forma limpa, 
-            informando o Status Code e os dados retornados. Se o retorno for grande, destaque apenas as partes principais.
-            uando o utilizador fornecer um Token (como JWT, Bearer), Chave de API, Hash, URL ou qualquer código longo, você DEVE copiá-lo EXATAMENTE caractere por caractere para dentro das ferramentas. 
-            NÃO altere, não resuma, não adicione nem remova NENHUMA letra, número ou pontuação. A mínima alteração nesses códigos invalidará a requisição e causará erros graves no sistema.
+* ✉️ **Envio de E-mails:**
+    - Se o usuário pedir para enviar um documento ou relatório por e-mail:
+      1. Se o documento ainda não existir, use PRIMEIRO 'generate_pdf_report' para criá-lo.
+      2. Com o caminho do arquivo em mãos, use 'send_email' passando-o no parâmetro 'attachmentPath'.
+      3. Avise o usuário amigavelmente após o envio bem-sucedido.
 
-           Você tem acesso direto ao banco de dados SQLite do sistema. Como o banco é muito grande, 
-           as consultas pesadas são feitas de forma assíncrona (em duas etapas):
-           1. PRIMEIRO, use a ferramenta 'submit_sql_task' com a sua query SQL. Ela devolverá um Task ID.
-           2. Responda ao utilizador de forma natural, dizendo APENAS que está a processar a requisição e que o avisará quando terminar (ex: "⏳ Estou a analisar os dados, aviso já quando terminar!").
-           3. OBRIGATORIAMENTE inclua a tag [MONITOR_TASK: o_id_da_tarefa_aqui] no FINAL da sua resposta.
-           4. ⚠️ REGRA DE OURO: NUNCA, em hipótese alguma, mencione a palavra "Task ID", "ID da tarefa" ou mostre o código do ID no texto da conversa com o utilizador. O ID deve ficar EXCLUSIVAMENTE dentro da tag [MONITOR_TASK: ...], que é invisível para ele.
-           
-           Você pode fazer consultas (SELECT) ou alterações (INSERT, UPDATE, DELETE).
-           Atenção: Se o utilizador pedir para atualizar ou deletar algo, tenha absoluta certeza 
-           de usar a cláusula 'WHERE' corretamente para não apagar o banco inteiro!
+* 🌐 **Pesquisas e Atualidades:**
+    - Se o usuário perguntar sobre notícias, cotações, dados atuais, mercado ou eventos recentes: Utilize a ferramenta 'web_search' para buscar informações reais na internet antes de responder.
 
-           Se o usuário perguntar sobre notícias, cotações, dados atuais ou eventos recentes, utilize a ferramenta 'web_search' para buscar as informações em tempo real na internet antes de responder.
+* 📂 **Gestão de Arquivos (Librarian/Retriever):**
+    - Se você não tiver certeza de qual fonte de dados ou documento o usuário está falando, acione primeiro a ferramenta 'list_my_files'. Se ainda houver dúvidas, pergunte ao usuário.
+    - Pode ingerir ou buscar embeddings de documentos para responder a perguntas baseadas neles.
 
-       
+* 🔌 **Teste de APIs e Redes:**
+    - Se pedirem para agir como Postman, testar endpoint ou fazer requisição: Use as ferramentas de HTTP Request. Forneça os resultados de forma limpa (Status Code e dados). Se o retorno for massivo, destaque apenas as partes principais.
+    - ⚠️ **DADOS SENSÍVEIS:** Quando o usuário fornecer um Token (JWT, Bearer), Chave de API, Hash ou URL, você DEVE copiá-lo EXATAMENTE caractere por caractere para dentro das ferramentas. NUNCA altere, resuma ou modifique esses dados.
 
-           
-        `
+* 🗄️ **Banco de Dados SQLite:**
+    - Você tem acesso direto ao BD. As consultas pesadas são feitas assincronamente (veja a Regra de Ouro acima).
+    - CUIDADO EXTREMO: Ao fazer alterações (UPDATE, DELETE), tenha certeza absoluta de usar a cláusula 'WHERE' corretamente para não corromper ou apagar a base de dados.
+`
     });
 }
 
@@ -300,7 +293,7 @@ async function connectToWhatsApp() {
                     console.log(`✅ Ficheiro guardado temporariamente em: ${filePath}`);
 
                     // Usa o senderInfo para o agente guardar corretamente na base de dados
-                    messageToAgent = `[SISTEMA]: O usuário enviou um arquivo PDF. O arquivo já foi baixado e salvo localmente no caminho: ${filePath}. O número do usuário é ${senderInfo}. Por favor, utilize a ferramenta 'ingest-pdf' para processar os embeddings deste arquivo. Use exatamente o nome "${originalFileName}" no parâmetro 'fileName' da ferramenta. Depois execute a ferramenta retriever-pdf para dar um breve resumo sobre esse arquivo.`;
+                    messageToAgent = `[SISTEMA]: O usuário enviou um arquivo PDF. O arquivo já foi baixado e salvo localmente no caminho: ${filePath}. O número do usuário é ${senderInfo}. Por favor, utilize a ferramenta 'ingest_pdf_async' para processar os embeddings deste arquivo. Use exatamente o nome "${originalFileName}" no parâmetro 'fileName' da ferramenta.`;
 
                 } catch (error) {
                     console.error("❌ Erro ao transferir ou guardar o PDF:", error);
@@ -390,17 +383,17 @@ O que o usuário disse: "${reciveText || 'Faça uma análise resumida desta plan
                 }
 
                 // --- NOVA LÓGICA DE MONITORIZAÇÃO DE TASKS ASSÍNCRONAS ---
-                const taskTagRegex = /\[MONITOR_TASK:\s*(.+?)\]/;
+                const taskTagRegex = /\[MONITOR_TASK:\s*(.+?)\s*\|\s*(.+?)\]/;
                 const taskMatch = aiResponse.match(taskTagRegex);
 
                 if (taskMatch) {
-                    const taskId = taskMatch[1].trim();
-                    
-                    // Limpa a tag secreta para que o utilizador não a veja no WhatsApp
+                    const checkToolName = taskMatch[1].trim(); // Ex: check_api_task
+                    const taskId = taskMatch[2].trim();        // Ex: 1234-5678
+
                     aiResponse = aiResponse.replace(taskTagRegex, '').trim();
 
-                    // Inicia a monitorização em background sem bloquear o fluxo atual
-                    monitorTaskInBackground(taskId, chatId, senderInfo, sock);
+                    // Inicia a monitorização em background passando a ferramenta correta
+                    monitorTaskInBackground(checkToolName, taskId, chatId, senderInfo, sock);
                 }
 
                 // 2. Só envia a mensagem de texto se sobrar algum texto após remover as tags
@@ -420,67 +413,48 @@ O que o usuário disse: "${reciveText || 'Faça uma análise resumida desta plan
 // ---------------------------------------------------------
 // FUNÇÃO PARA MONITORIZAR TASKS SQL EM BACKGROUND
 // ---------------------------------------------------------
-function monitorTaskInBackground(taskId: string, chatId: string, senderInfo: string, sock: any) {
-    console.log(`👀 A iniciar monitorização da tarefa em background: ${taskId}`);
+function monitorTaskInBackground(checkToolName: string, taskId: string, chatId: string, senderInfo: string, sock: any) {
+    console.log(`👀 A iniciar monitorização da tarefa em background: ${taskId} usando a ferramenta ${checkToolName}`);
     
-    // Inicia um loop que verifica o status a cada 10 segundos
     const interval = setInterval(async () => {
         try {
-            // Procura a ferramenta 'check_sql_task' diretamente na lista de ferramentas instanciadas
-            const checkTool = mcpTools.find(t => t.name === "check_sql_task");
+            // Procura dinamicamente a ferramenta que a IA indicou
+            const checkTool = mcpTools.find(t => t.name === checkToolName);
             
             if (!checkTool) {
-                console.error("❌ Ferramenta check_sql_task não encontrada! Cancelando monitorização.");
+                console.error(`❌ Ferramenta ${checkToolName} não encontrada! Cancelando monitorização.`);
                 clearInterval(interval);
                 return;
             }
 
-            // Invoca a ferramenta programaticamente passando o ID da tarefa
             const result = await checkTool.invoke({ taskId: taskId });
-            
-            // Converte o resultado para texto
             const responseText = typeof result === 'string' ? result : JSON.stringify(result);
 
-            // Se o MCP disser que ainda está em "pending", paramos por aqui e esperamos o próximo ciclo de 10s
             if (responseText.includes("ainda está em processamento")) {
-                return;
+                return; // Aguarda o próximo ciclo
             }
 
-            // Se não está em processamento, a tarefa concluiu (ou deu erro)!
-            clearInterval(interval); // Pára o loop para não enviar mensagens repetidas
+            clearInterval(interval); // Terminou (sucesso ou erro)!
 
-            console.log(`✅ Tarefa ${taskId} finalizada. A acordar a IA para notificar o utilizador...`);
-            
-            // Simula a ação de "A escrever..." no WhatsApp
+            console.log(`✅ Tarefa ${taskId} finalizada. A acordar a IA...`);
             await sock.sendPresenceUpdate('composing', chatId);
 
-           
-            const notificationPrompt = `[SISTEMA]: A tarefa SQL que você submeteu de forma assíncrona (ID: ${taskId}) acaba de ser concluída nos bastidores. Aqui está o resultado bruto retornado pelo banco de dados:\n\n${responseText}\n\nPor favor, analise esses dados e envie uma mensagem diretamente para o utilizador informando que o processamento terminou. 
-            
-⚠️ REGRAS OBRIGATÓRIAS DE FORMATAÇÃO: 
-1. NÃO use tabelas em Markdown (como | Coluna | Valor |). O WhatsApp não suporta isso e fica ilegível!
-2. Apresente os resultados APENAS em formato de texto simples, usando listas com marcadores (hifens ou emojis).
-3. Use APENAS a formatação nativa do WhatsApp (*negrito* e _itálico_).`;
+            const notificationPrompt = `[SISTEMA]: A tarefa assíncrona que você submeteu (ID: ${taskId}) foi concluída. Aqui está o resultado bruto:\n\n${responseText}\n\nPor favor, analise esses dados e envie uma mensagem direta ao utilizador informando o resultado final. Regras: NÃO use tabelas Markdown. Use formatação nativa do WhatsApp (*negrito* e _itálico_). Se for um erro, avise o utilizador de forma amigável.`;
 
-            // Injeta o resultado no mesmo contexto (thread) da conversa
             const agentResult = await agent.invoke(
                 { messages: [{ role: "user", content: notificationPrompt }] },
                 { configurable: { thread_id: senderInfo } }
             );
 
-            // Extrai a resposta final gerada pela IA
             const finalMessage = agentResult.messages[agentResult.messages.length - 1].content;
-
-            // Dispara a mensagem final para o WhatsApp
             await sock.sendMessage(chatId, { text: `🤖 ${finalMessage}` });
 
         } catch (error) {
             console.error(`❌ Erro ao monitorizar a tarefa ${taskId}:`, error);
             clearInterval(interval);
         }
-    }, 10000); // 10000 ms = 10 segundos
+    }, 10000); 
 }
-
 async function start() {
     try {
         await getDb();

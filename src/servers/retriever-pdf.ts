@@ -69,7 +69,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
                 // 2. Faz a busca semântica! 
                 // O LangChain permite passar um filtro no 3º argumento. Vamos pedir os 4 trechos mais relevantes.
-                const searchResults = await vectorStore.similaritySearch(query, 4, {
+                const searchResults = await vectorStore.similaritySearch(query, 20, {
                     must: filterConditions // <-- PASSE O ARRAY AQUI
                 });
                 // Se o usuário não tiver PDFs ou não achar nada parecido:

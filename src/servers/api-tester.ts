@@ -1,6 +1,7 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { AsyncTaskManager } from "../utils/async-task.js";
 
 const server = new Server({ name: "api-tester", version: "1.0.0" }, { capabilities: { tools: {} } });
 
@@ -9,13 +10,13 @@ const server = new Server({ name: "api-tester", version: "1.0.0" }, { capabiliti
 // =========================================================================
 async function getCredifyToken(): Promise<string> {
     const authUrl = "https://api.credify.com.br/auth";
-    
+
     console.log("🔐 Solicitando novo token à Credify...");
-    
+
     // NOTA: O fetch nativo não aceita 'body' no método 'GET'. 
     // Usamos 'POST' aqui assumindo que a API aceita este método para receber o JSON no corpo da requisição.
     const response = await fetch(authUrl, {
-        method: "POST", 
+        method: "POST",
         headers: {
             "Content-Type": "application/json"
         },
@@ -30,7 +31,7 @@ async function getCredifyToken(): Promise<string> {
     }
 
     const data = await response.json();
-    
+
     // Valida se o retorno foi sucesso e possui a chave 'Dados' (onde está o token)
     if (data.Sucess && data.Dados) {
         console.log("✅ Token gerado com sucesso!");
@@ -40,14 +41,16 @@ async function getCredifyToken(): Promise<string> {
     }
 }
 
+const taskManager = new AsyncTaskManager();
+
 // =========================================================================
 // DEFINIÇÃO DA FERRAMENTA PARA A IA (Sem pedir headers)
 // =========================================================================
 server.setRequestHandler(ListToolsRequestSchema, async () => {
     return {
         tools: [{
-            name: "make_http_request",
-            description: "Faz uma requisição HTTP para a API (ex: Credify). O Token Bearer de autenticação é gerado e injetado automaticamente nos headers, não te preocupes com isso.",
+            name: "make_http_request_async", // <-- Nome alterado para refletir que é assíncrono
+            description: "Faz uma requisição HTTP pesada. ATENÇÃO: Esta é uma ferramenta assíncrona. Ela devolverá um Task ID. Você DEVE usar a tag [MONITOR_TASK: check_api_task | ID] na sua resposta.",
             inputSchema: {
                 type: "object",
                 properties: {
@@ -56,8 +59,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                     body: { type: "string", description: "Corpo da requisição (Body) no formato string JSON. Usado nas requisições POST e PUT. Opcional." }
                 },
                 required: ["url"]
+            },
+
+        },
+        {
+            name: "check_api_task",
+            description: "Verifica o resultado de uma requisição de API submetida anteriormente.",
+            inputSchema: {
+                type: "object",
+                properties: { taskId: { type: "string" } },
+                required: ["taskId"]
             }
-        }]
+        }
+
+        ]
     };
 });
 
@@ -65,61 +80,38 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 // EXECUÇÃO DA FERRAMENTA
 // =========================================================================
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    if (request.params.name === "make_http_request") {
+    
+    if (request.params.name === "make_http_request_async") {
         const { url, method = "GET", body } = request.params.arguments as any;
 
-        try {
-            // 1. Pega o Token atualizado de forma invisível para o usuário
+        const apiPromise = async () => {
             const token = await getCredifyToken();
-
-            // 2. Prepara os Headers padrões forçando o Bearer Token
             const fetchOptions: RequestInit = {
                 method: method.toUpperCase(),
-                headers: {
-                    "Authorization": `Bearer ${token}`,
-                    "Content-Type": "application/json",
-                    "Accept": "application/json"
-                },
+                headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
             };
-
-            // 3. Injeta o body se a requisição o exigir
             if (body && ["POST", "PUT", "PATCH"].includes(fetchOptions.method as string)) {
                 fetchOptions.body = body;
             }
-
-            console.log(`🌐 Disparando requisição principal: ${fetchOptions.method} ${url}`);
             const response = await fetch(url, fetchOptions);
-            
-            // Identifica o tipo de resposta para fazer o parse correto
-            let responseData;
-            const contentType = response.headers.get("content-type") || "";
-            
-            if (contentType.includes("application/json")) {
-                responseData = await response.json();
-            } else {
-                responseData = await response.text();
-            }
+            const data = response.headers.get("content-type")?.includes("application/json") ? await response.json() : await response.text();
+            return { status: response.status, data };
+        };
 
-            // Estrutura a resposta de forma clara para a IA ler
-            const responseToAgent = {
-                status: response.status,
-                statusText: response.statusText,
-                data: responseData
-            };
+        const taskId = taskManager.execute(apiPromise());
 
-            let resultText = JSON.stringify(responseToAgent, null, 2);
-            
-            // Trunca a resposta caso a API devolva listas imensas
-            const MAX_LENGTH = 6000;
-            if (resultText.length > MAX_LENGTH) {
-                resultText = resultText.substring(0, MAX_LENGTH) + "\n\n... [RESPOSTA TRUNCADA DEVIDO AO TAMANHO. A API RETORNOU MUITOS DADOS]";
-            }
+        return { 
+            content: [{ 
+                type: "text", 
+                text: `SUCESSO! A requisição foi para background.\n\nINSTRUÇÃO OBRIGATÓRIA PARA A IA:\nCopie o ID exato abaixo e coloque na sua tag de monitorização.\nID: ${taskId}\nFerramenta: check_api_task\nFormato esperado na sua resposta: [MONITOR_TASK: check_api_task | ${taskId}]` 
+            }] 
+        };
+    }
 
-            return { content: [{ type: "text", text: `Requisição concluída:\n${resultText}` }] };
-
-        } catch (error: any) {
-            return { content: [{ type: "text", text: `Falha ao fazer a requisição HTTP: ${error.message}` }], isError: true };
-        }
+    // 3. A ferramenta de verificação usa 1 única linha!
+    if (request.params.name === "check_api_task") {
+        const { taskId } = request.params.arguments as any;
+        return taskManager.check(taskId);
     }
 
     return { content: [{ type: "text", text: `Ferramenta desconhecida` }], isError: true };
