@@ -418,11 +418,11 @@ O que o usuário disse: "${reciveText || 'Faça uma análise resumida desta plan
 // ---------------------------------------------------------
 function monitorTaskInBackground(checkToolName: string, taskId: string, chatId: string, senderInfo: string, sock: any) {
     console.log(`👀 A iniciar monitorização da tarefa em background: ${taskId} usando a ferramenta ${checkToolName}`);
-    
+
     const interval = setInterval(async () => {
         try {
             const checkTool = mcpTools.find(t => t.name === checkToolName);
-            
+
             if (!checkTool) {
                 console.error(`❌ Ferramenta ${checkToolName} não encontrada! Cancelando monitorização.`);
                 clearInterval(interval);
@@ -457,9 +457,16 @@ function monitorTaskInBackground(checkToolName: string, taskId: string, chatId: 
 
             let finalMessage = agentResult.messages[agentResult.messages.length - 1].content;
 
-            // 1. Intercepta o envio de PDF gerado no background
+            // ADICIONAR ESTA VERIFICAÇÃO:
+            if (Array.isArray(finalMessage)) {
+                finalMessage = finalMessage.map((block: any) => block.text || '').join('\n');
+            }
+
+            // O resto do código continua igual...
             const pdfTagRegex = /\[SEND_PDF:\s*(.+?)\]/;
             const pdfMatch = finalMessage.match(pdfTagRegex);
+
+
 
             if (pdfMatch) {
                 const filePath = pdfMatch[1].trim();
@@ -484,8 +491,8 @@ function monitorTaskInBackground(checkToolName: string, taskId: string, chatId: 
             const taskMatch = finalMessage.match(taskTagRegex);
 
             if (taskMatch) {
-                const newCheckToolName = taskMatch[1].trim(); 
-                const newTaskId = taskMatch[2].trim();        
+                const newCheckToolName = taskMatch[1].trim();
+                const newTaskId = taskMatch[2].trim();
 
                 finalMessage = finalMessage.replace(taskTagRegex, '').trim();
 
@@ -502,7 +509,7 @@ function monitorTaskInBackground(checkToolName: string, taskId: string, chatId: 
             console.error(`❌ Erro ao monitorizar a tarefa ${taskId}:`, error);
             clearInterval(interval);
         }
-    }, 10000); 
+    }, 10000);
 }
 
 async function start() {
