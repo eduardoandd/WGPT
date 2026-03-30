@@ -124,7 +124,7 @@ async function runClient() {
     const checkpointer = new MemorySaver();
 
     agent = createAgent({
-        model: fastModel, // modelo padronizado
+        model: expertModel, // modelo padronizado
         tools: mcpTools, // lista de ferramentas para o agente utilizar
         checkpointer: checkpointer, // anti-amnésia
         systemPrompt: `
@@ -145,8 +145,8 @@ Ferramentas assíncronas NÃO devolvem o resultado final na hora. Elas retornam 
 ### 3. DIRETRIZES DE USO DAS FERRAMENTAS
 
 * 📊 **Planilhas e Relatórios:**
-    - Se o usuário enviar uma planilha: Use 'read_spreadsheet'. Analise os valores como um especialista (busque totais, médias, padrões, maiores gastos). Em seguida, OBRIGATORIAMENTE crie um relatório formatado e chame a ferramenta 'generate_pdf_report' para entregar a análise em PDF ao usuário.
-    - Se o usuário pedir um relatório: Use 'generate_pdf_report' e estruture o 'markdownContent' de forma rica, elegante e agradável para a leitura (com tabelas e destaques).
+    - Se o usuário enviar uma planilha: Use 'read_spreadsheet_async'. Analise os valores como um especialista (busque totais, médias, padrões). Em seguida, OBRIGATORIAMENTE crie um relatório formatado e chame a ferramenta 'generate_pdf_report_async' para entregar a análise em PDF ao usuário.
+    - Se o usuário pedir um relatório: Use 'generate_pdf_report_async' e estruture o 'markdownContent' de forma rica, elegante e agradável para a leitura (com tabelas e destaques).
 
 * ✉️ **Envio de E-mails:**
     - Se o usuário pedir para enviar um documento ou relatório por e-mail:
@@ -325,7 +325,7 @@ async function connectToWhatsApp() {
 
                     messageToAgent = `[SISTEMA]: O usuário enviou uma planilha salva em: ${filePath}. 
 Siga EXATAMENTE estes passos:
-1. Use a ferramenta 'read_spreadsheet' para ler os dados brutos.
+1. Use a ferramenta 'read_spreadsheet_async' para ler os dados brutos.
 2. Analise os resultados e monte um relatório em Markdown focado em INSIGHTS (totais, médias, padrões). 
 3. ⚠️ IMPORTANTE: NÃO tente colocar a planilha inteira no Markdown. Se for criar tabelas, mostre NO MÁXIMO as 5 a 10 linhas mais relevantes (ex: Top 5 itens). Escrever textos muito grandes causará falha no sistema.
 4. Chame a ferramenta 'generate_pdf_report' passando o título, um 'fileName' (terminado em .pdf) e o Markdown gerado no parâmetro 'markdownContent'.
@@ -413,12 +413,14 @@ O que o usuário disse: "${reciveText || 'Faça uma análise resumida desta plan
 // ---------------------------------------------------------
 // FUNÇÃO PARA MONITORIZAR TASKS SQL EM BACKGROUND
 // ---------------------------------------------------------
+// ---------------------------------------------------------
+// FUNÇÃO PARA MONITORIZAR TASKS ASSÍNCRONAS EM BACKGROUND
+// ---------------------------------------------------------
 function monitorTaskInBackground(checkToolName: string, taskId: string, chatId: string, senderInfo: string, sock: any) {
     console.log(`👀 A iniciar monitorização da tarefa em background: ${taskId} usando a ferramenta ${checkToolName}`);
     
     const interval = setInterval(async () => {
         try {
-            // Procura dinamicamente a ferramenta que a IA indicou
             const checkTool = mcpTools.find(t => t.name === checkToolName);
             
             if (!checkTool) {
@@ -434,20 +436,67 @@ function monitorTaskInBackground(checkToolName: string, taskId: string, chatId: 
                 return; // Aguarda o próximo ciclo
             }
 
-            clearInterval(interval); // Terminou (sucesso ou erro)!
+            clearInterval(interval); // Terminou!
 
             console.log(`✅ Tarefa ${taskId} finalizada. A acordar a IA...`);
             await sock.sendPresenceUpdate('composing', chatId);
 
-            const notificationPrompt = `[SISTEMA]: A tarefa assíncrona que você submeteu (ID: ${taskId}) foi concluída. Aqui está o resultado bruto:\n\n${responseText}\n\nPor favor, analise esses dados e envie uma mensagem direta ao utilizador informando o resultado final. Regras: NÃO use tabelas Markdown. Use formatação nativa do WhatsApp (*negrito* e _itálico_). Se for um erro, avise o utilizador de forma amigável.`;
+            let notificationPrompt = `[SISTEMA]: A tarefa assíncrona que você submeteu (ID: ${taskId}) foi concluída. Aqui está o resultado bruto:\n\n${responseText}\n\nPor favor, analise esses dados e envie uma mensagem direta ao utilizador informando o resultado final. Regras: NO CHAT, NÃO use tabelas Markdown. Use formatação nativa do WhatsApp (*negrito* e _itálico_). Se for um erro, avise o utilizador de forma amigável.`;
+
+            // Força a IA a gerar o PDF logo após ler a planilha, tirando o medo dela de usar Markdown
+            if (checkToolName === "check_spreadsheet_task" && !responseText.includes("Erro") && !responseText.includes("falhou")) {
+                notificationPrompt += `\n\n⚠️ INSTRUÇÃO OBRIGATÓRIA: Como você acabou de ler uma planilha, você DEVE OBRIGATORIAMENTE fazer duas coisas agora:
+1. Escrever o resumo rápido para enviar no chat.
+2. Chamar a ferramenta 'generate_pdf_report_async' para gerar o relatório completo. IMPORTANTE: No parâmetro 'markdownContent' desta ferramenta, VOCÊ PODE E DEVE usar tabelas Markdown e formatação rica baseada nos dados lidos.`;
+            }
 
             const agentResult = await agent.invoke(
                 { messages: [{ role: "user", content: notificationPrompt }] },
                 { configurable: { thread_id: senderInfo } }
             );
 
-            const finalMessage = agentResult.messages[agentResult.messages.length - 1].content;
-            await sock.sendMessage(chatId, { text: `🤖 ${finalMessage}` });
+            let finalMessage = agentResult.messages[agentResult.messages.length - 1].content;
+
+            // 1. Intercepta o envio de PDF gerado no background
+            const pdfTagRegex = /\[SEND_PDF:\s*(.+?)\]/;
+            const pdfMatch = finalMessage.match(pdfTagRegex);
+
+            if (pdfMatch) {
+                const filePath = pdfMatch[1].trim();
+                console.log(`📤 A preparar para enviar relatório PDF (via Background): ${filePath}`);
+
+                try {
+                    await sock.sendMessage(chatId, {
+                        document: { url: filePath },
+                        mimetype: 'application/pdf',
+                        fileName: path.basename(filePath) || 'Relatorio.pdf'
+                    });
+                    console.log('✅ PDF enviado com sucesso para o WhatsApp!');
+                } catch (err) {
+                    console.error('❌ Erro ao enviar o PDF pelo WhatsApp:', err);
+                }
+
+                finalMessage = finalMessage.replace(pdfTagRegex, '').trim();
+            }
+
+            // 2. Intercepta uma nova Task Assíncrona (Ex: A IA iniciou a geração do PDF)
+            const taskTagRegex = /\[MONITOR_TASK:\s*(.+?)\s*\|\s*(.+?)\]/;
+            const taskMatch = finalMessage.match(taskTagRegex);
+
+            if (taskMatch) {
+                const newCheckToolName = taskMatch[1].trim(); 
+                const newTaskId = taskMatch[2].trim();        
+
+                finalMessage = finalMessage.replace(taskTagRegex, '').trim();
+
+                // Começa a monitorar o PDF!
+                monitorTaskInBackground(newCheckToolName, newTaskId, chatId, senderInfo, sock);
+            }
+
+            // Envia o texto do resumo para o usuário no chat
+            if (finalMessage.length > 0) {
+                await sock.sendMessage(chatId, { text: `🤖 ${finalMessage}` });
+            }
 
         } catch (error) {
             console.error(`❌ Erro ao monitorizar a tarefa ${taskId}:`, error);
@@ -455,6 +504,7 @@ function monitorTaskInBackground(checkToolName: string, taskId: string, chatId: 
         }
     }, 10000); 
 }
+
 async function start() {
     try {
         await getDb();
