@@ -31,7 +31,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const { to, subject, body, attachmentPath } = request.params.arguments as any;
 
         try {
-            // Configuração do Nodemailer (Exemplo para Gmail)
             const transporter = nodemailer.createTransport({
                 service: 'gmail',
                 auth: {
@@ -47,7 +46,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 text: body,
             };
 
-            // Se a IA enviar um caminho de anexo, verifica se existe e anexa
             if (attachmentPath) {
                 if (fs.existsSync(attachmentPath)) {
                     mailOptions.attachments = [{ path: attachmentPath }];

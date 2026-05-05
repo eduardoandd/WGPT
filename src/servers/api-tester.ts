@@ -5,16 +5,12 @@ import { AsyncTaskManager } from "../utils/async-task.js";
 
 const server = new Server({ name: "api-tester", version: "1.0.0" }, { capabilities: { tools: {} } });
 
-// =========================================================================
-// FUNÇÃO AUXILIAR: Obtém o token automaticamente da Credify
-// =========================================================================
 async function getCredifyToken(): Promise<string> {
     const authUrl = "https://api.credify.com.br/auth";
 
     console.log("🔐 Solicitando novo token à Credify...");
 
-    // NOTA: O fetch nativo não aceita 'body' no método 'GET'. 
-    // Usamos 'POST' aqui assumindo que a API aceita este método para receber o JSON no corpo da requisição.
+
     const response = await fetch(authUrl, {
         method: "POST",
         headers: {
@@ -32,7 +28,6 @@ async function getCredifyToken(): Promise<string> {
 
     const data = await response.json();
 
-    // Valida se o retorno foi sucesso e possui a chave 'Dados' (onde está o token)
     if (data.Sucess && data.Dados) {
         console.log("✅ Token gerado com sucesso!");
         return data.Dados;
@@ -43,13 +38,11 @@ async function getCredifyToken(): Promise<string> {
 
 const taskManager = new AsyncTaskManager();
 
-// =========================================================================
-// DEFINIÇÃO DA FERRAMENTA PARA A IA (Sem pedir headers)
-// =========================================================================
+
 server.setRequestHandler(ListToolsRequestSchema, async () => {
     return {
         tools: [{
-            name: "make_http_request_async", // <-- Nome alterado para refletir que é assíncrono
+            name: "make_http_request_async", 
             description: "Faz uma requisição HTTP pesada. ATENÇÃO: Esta é uma ferramenta assíncrona. Ela devolverá um Task ID. Você DEVE usar a tag [MONITOR_TASK: check_api_task | ID] na sua resposta.",
             inputSchema: {
                 type: "object",
@@ -76,9 +69,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     };
 });
 
-// =========================================================================
-// EXECUÇÃO DA FERRAMENTA
-// =========================================================================
+
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
     
     if (request.params.name === "make_http_request_async") {
@@ -108,7 +99,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
     }
 
-    // 3. A ferramenta de verificação usa 1 única linha!
     if (request.params.name === "check_api_task") {
         const { taskId } = request.params.arguments as any;
         return taskManager.check(taskId);

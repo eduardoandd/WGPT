@@ -17,7 +17,6 @@ const server = new Server(
     { capabilities: { tools: {} } }
 );
 
-// 1. Instanciamos o gestor de tarefas para os PDFs
 const taskManager = new AsyncTaskManager();
 
 const ensureCollectionIndexes = async () => {
@@ -71,7 +70,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (request.params.name === "ingest_pdf_async") {
         const { filePath, userPhoneNumber, fileName } = request.params.arguments as { filePath: string, userPhoneNumber: string, fileName: string };
 
-        // Colocamos o processamento lento dentro de uma Promise
         const processPromise = async () => {
             try {
                 if (!fs.existsSync(filePath)) {
@@ -137,7 +135,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 return `Sucesso! O arquivo ${fileName} foi lido, processado e salvo na base de dados. Resumo gerado: ${response.content}`;
 
             } finally {
-                // A limpeza do arquivo temporário agora fica dentro do finally da Promise assíncrona!
                 try {
                     if (fs.existsSync(filePath)) {
                         fs.unlinkSync(filePath);
@@ -149,10 +146,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             }
         };
 
-        // 2. O TaskManager toma conta de tudo e devolve apenas o ID!
         const taskId = taskManager.execute(processPromise());
 
-        // 3. Força a IA a usar a tag [MONITOR_TASK...]
         return {
             content: [{ 
                 type: "text", 

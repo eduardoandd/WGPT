@@ -26,11 +26,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (request.params.name === "search_cnpj") {
         const { cnpj } = request.params.arguments as any;
         
-        // Limpa a pontuação para a API
         const cleanCnpj = cnpj.replace(/\D/g, '');
         
         try {
-            // Disfarçando o bot de navegador (Chrome) para driblar o erro 403 (Forbidden) do Cloudflare
             const response = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cleanCnpj}`, {
                 headers: { 
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", 
@@ -46,7 +44,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
             const data = await response.json();
 
-            // Pega o JSON INTEIRO, transforma em texto e joga para a IA ler!
             return { 
                 content: [{ 
                     type: "text", 

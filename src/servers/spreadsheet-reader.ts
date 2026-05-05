@@ -1,36 +1,111 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { tool } from "@langchain/core/tools";
+import { HumanMessage } from "@langchain/core/messages";
+import { createReactAgent } from "@langchain/langgraph/prebuilt";
+import { z } from "zod";
+import { fastModel } from "../utils/models.js";
 import * as xlsx from 'xlsx';
 import fs from 'fs';
-import { AsyncTaskManager } from "../utils/async-task.js";
+import "dotenv/config";
 
-const server = new Server({ name: "spreadsheet-reader", version: "1.0.0" }, { capabilities: { tools: {} } });
+const server = new Server({ name: "spreadsheet-agent", version: "2.0.0" }, { capabilities: { tools: {} } });
 
-// 1. Instanciamos o gestor de tarefas
-const taskManager = new AsyncTaskManager();
+// Ferramenta: ler planilha
+const readSpreadsheet = tool(
+    async ({ filePath, maxRows = 500 }) => {
+        console.error(`📊 [Spreadsheet Agent] Lendo planilha: ${filePath}`);
+
+        if (!fs.existsSync(filePath)) {
+            throw new Error(`Arquivo não encontrado: ${filePath}`);
+        }
+
+        const fileBuffer = fs.readFileSync(filePath);
+        const workbook = xlsx.read(fileBuffer, { type: 'buffer' });
+
+        let result = `Planilha carregada. Abas disponíveis: ${workbook.SheetNames.join(", ")}\n\n`;
+
+        for (const sheetName of workbook.SheetNames) {
+            const sheet = workbook.Sheets[sheetName];
+            const data = xlsx.utils.sheet_to_json(sheet) as any[];
+
+            if (data.length === 0) {
+                result += `Aba "${sheetName}": vazia.\n`;
+                continue;
+            }
+
+            const isLarge = data.length > maxRows;
+            const sample = isLarge ? data.slice(0, maxRows) : data;
+
+            result += `Aba: "${sheetName}" — ${data.length} linha(s) no total`;
+            if (isLarge) result += ` (mostrando primeiras ${maxRows})`;
+            result += `\nColunas: ${Object.keys(sample[0]).join(", ")}\n`;
+            result += JSON.stringify(sample, null, 2);
+            result += "\n\n";
+
+            // Trunca se muito grande
+            if (result.length > 12000) {
+                result = result.substring(0, 12000) + "\n... [DADOS TRUNCADOS]";
+                break;
+            }
+        }
+
+        return result;
+    },
+    {
+        name: "read_spreadsheet",
+        description: "Lê um arquivo de planilha (Excel .xlsx, .xls ou CSV) e retorna os dados para análise.",
+        schema: z.object({
+            filePath: z.string().describe("Caminho completo do arquivo de planilha"),
+            maxRows: z.number().optional().default(500).describe("Máximo de linhas por aba (padrão: 500)")
+        })
+    }
+);
+
+const spreadsheetTools = [readSpreadsheet];
+
+const SYSTEM_PROMPT = `Você é um especialista em análise de dados e planilhas.
+Você recebe o caminho de um arquivo e uma pergunta do usuário. Use a ferramenta read_spreadsheet para carregar os dados e responda com insights relevantes.
+
+Diretrizes de análise:
+- Calcule totais, médias, máximos e mínimos quando relevante
+- Identifique padrões, tendências e anomalias nos dados
+- Destaque os TOP itens (top 5 vendas, maiores gastos, etc.)
+- Se a planilha tiver múltiplas abas, analise todas que forem relevantes
+- Responda o que o usuário perguntou de forma direta e clara
+
+FORMATAÇÃO (WhatsApp):
+- Use *negrito* para valores e destaques importantes
+- Use emojis expressivos (📊 análise, 📈 crescimento, 📉 queda, 🏆 top, ⚠️ anomalia)
+- NUNCA crie tabelas Markdown — use listas com hífen
+- Separe seções com linha em branco`;
+
+const spreadsheetAgent = createReactAgent({
+    llm: fastModel,
+    tools: spreadsheetTools,
+    stateModifier: SYSTEM_PROMPT
+});
 
 server.setRequestHandler(ListToolsRequestSchema, async () => {
     return {
         tools: [
             {
-                name: "read_spreadsheet_async",
-                description: "Lê um ficheiro de planilha (Excel/CSV) e devolve os dados em formato JSON. ATENÇÃO: Esta é uma ferramenta assíncrona. Ela devolverá um Task ID. Você DEVE usar a tag [MONITOR_TASK: check_spreadsheet_task | ID] na sua resposta.",
+                name: "ask_spreadsheet_specialist",
+                description: "Aciona o agente especialista em planilhas. Ele lê o arquivo, analisa os dados e retorna insights interpretados em linguagem natural. Use quando o usuário enviar uma planilha ou pedir análise de dados.",
                 inputSchema: {
                     type: "object",
                     properties: {
-                        filePath: { type: "string", description: "O caminho local do ficheiro da planilha." }
+                        question: {
+                            type: "string",
+                            description: "O pedido do usuário (ex: 'Faça uma análise completa', 'Qual o produto mais vendido?', 'Mostre os totais por categoria')"
+                        },
+                        filePath: {
+                            type: "string",
+                            description: "Caminho completo do arquivo de planilha salvo localmente"
+                        }
                     },
-                    required: ["filePath"]
-                }
-            },
-            {
-                name: "check_spreadsheet_task",
-                description: "Verifica o resultado da leitura de uma planilha submetida anteriormente.",
-                inputSchema: {
-                    type: "object",
-                    properties: { taskId: { type: "string" } },
-                    required: ["taskId"]
+                    required: ["question", "filePath"]
                 }
             }
         ]
@@ -38,68 +113,39 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 });
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    
-    // 2. Inicia a tarefa de leitura assincronamente
-    if (request.params.name === "read_spreadsheet_async") {
-        const { filePath } = request.params.arguments as any;
+    if (request.params.name === "ask_spreadsheet_specialist") {
+        const { question, filePath } = request.params.arguments as { question: string; filePath: string };
 
-        const readPromise = async () => {
-            if (!fs.existsSync(filePath)) {
-                throw new Error(`Ficheiro não encontrado em ${filePath}`);
-            }
+        try {
+            console.error(`\n🧠 [Spreadsheet Agent] Iniciando análise: "${question}" | Arquivo: ${filePath}`);
 
-            // Lê o ficheiro Excel ou CSV
-            const fileBuffer = fs.readFileSync(filePath);
-            const workbook = xlsx.read(fileBuffer, { type: 'buffer' });
-            const sheetName = workbook.SheetNames[0]; // Pega na primeira aba
-            const sheet = workbook.Sheets[sheetName];
+            const fullQuestion = `Arquivo da planilha: ${filePath}\n\nPergunta do usuário: ${question}`;
 
-            // Converte os dados da planilha para um Array de Objetos JSON
-            const data = xlsx.utils.sheet_to_json(sheet);
+            const result = await spreadsheetAgent.invoke({
+                messages: [new HumanMessage(fullQuestion)]
+            });
 
-            if (data.length === 0) {
-                return "A planilha está vazia.";
-            }
+            const lastMessage = result.messages[result.messages.length - 1];
+            const answer = typeof lastMessage.content === "string"
+                ? lastMessage.content
+                : JSON.stringify(lastMessage.content);
 
-            // Pega um limite de linhas para não sobrecarregar a memória da IA (proteção)
-            const maxRows = 1000;
-            const isLarge = data.length > maxRows;
-            const sampleData = isLarge ? data.slice(0, maxRows) : data;
+            console.error("✅ [Spreadsheet Agent] Análise concluída.");
+            return { content: [{ type: "text", text: answer }] };
 
-            let resultText = `Planilha lida com sucesso! Aba: "${sheetName}". Total de linhas: ${data.length}.\n\n`;
-            if (isLarge) {
-                resultText += `Aviso: A planilha é muito grande. Mostrar apenas as primeiras ${maxRows} linhas para análise:\n`;
-            }
-
-            // Entrega os dados formatados
-            resultText += JSON.stringify(sampleData, null, 2);
-
-            return resultText;
-        };
-
-        // Adiciona a Promise ao gerenciador e pega o ID da tarefa
-        const taskId = taskManager.execute(readPromise());
-
-        return { 
-            content: [{ 
-                type: "text", 
-                text: `SUCESSO! A leitura da planilha foi iniciada em background.\n\nINSTRUÇÃO OBRIGATÓRIA PARA A IA:\nCopie o ID exato abaixo e coloque na sua tag de monitorização.\nID: ${taskId}\nFerramenta: check_spreadsheet_task\nFormato esperado na sua resposta: [MONITOR_TASK: check_spreadsheet_task | ${taskId}]` 
-            }] 
-        };
+        } catch (error: any) {
+            console.error("❌ [Spreadsheet Agent] Erro:", error.message);
+            return { content: [{ type: "text", text: `Erro ao analisar planilha: ${error.message}` }], isError: true };
+        }
     }
 
-    // 3. Ferramenta de verificação de status
-    if (request.params.name === "check_spreadsheet_task") {
-        const { taskId } = request.params.arguments as any;
-        return taskManager.check(taskId);
-    }
-
-    return { content: [{ type: "text", text: `Ferramenta desconhecida` }], isError: true };
+    return { content: [{ type: "text", text: "Ferramenta desconhecida" }], isError: true };
 });
 
 async function runServer() {
     const transport = new StdioServerTransport();
     await server.connect(transport);
+    console.error("✅ Servidor MCP 'spreadsheet-agent v2' conectado via stdio!");
 }
 
 runServer().catch(console.error);

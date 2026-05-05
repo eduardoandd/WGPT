@@ -32,7 +32,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         try {
             console.log(`🔍 Pesquisando na Web por: "${query}"`);
 
-            // Fazendo a requisição nativa usando fetch para a API da Tavily
             const response = await fetch("https://api.tavily.com/search", {
                 method: "POST",
                 headers: {
@@ -41,9 +40,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 body: JSON.stringify({
                     api_key: apiKey,
                     query: query,
-                    search_depth: "basic", // Retorna resultados mais rápidos
-                    include_answer: true,  // Pede à Tavily para tentar gerar uma resposta direta
-                    max_results: 5         // Limita a 5 fontes para não estourar os tokens da sua IA
+                    search_depth: "basic", 
+                    include_answer: true,  
+                    max_results: 5         
                 })
             });
 
@@ -53,7 +52,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
             const data = await response.json();
 
-            // Monta uma resposta estruturada e limpa para a sua IA (LangChain) processar
             let resultText = `Resultados da pesquisa na web para "${query}":\n\n`;
 
             if (data.answer) {

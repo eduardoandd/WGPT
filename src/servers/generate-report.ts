@@ -5,11 +5,10 @@ import puppeteer from 'puppeteer';
 import path from 'path';
 import os from 'os';
 import { marked } from 'marked';
-import { AsyncTaskManager } from "../utils/async-task.js"; // Adicionado
+import { AsyncTaskManager } from "../utils/async-task.js"; 
 
 const server = new Server({ name: "report-generator", version: "1.0.0" }, { capabilities: { tools: {} } });
 
-// 1. Instanciamos o gestor de tarefas
 const taskManager = new AsyncTaskManager();
 
 server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -43,7 +42,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
     
-    // 2. Inicia a tarefa de geração de PDF assincronamente
     if (request.params.name === "generate_pdf_report_async") {
         const { title, markdownContent, fileName } = request.params.arguments as any;
 
@@ -76,18 +74,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
             const filePath = path.join(os.tmpdir(), fileName);
 
-            // Inicializa o Puppeteer e gera o PDF
             const browser = await puppeteer.launch({ headless: true });
             const page = await browser.newPage();
             await page.setContent(fullHtml, { waitUntil: 'networkidle0' });
             await page.pdf({ path: filePath, format: 'A4', printBackground: true });
             await browser.close();
 
-            // Retorna a instrução para que a IA mande a TAG de envio no momento em que a task finalizar
             return `O PDF foi gerado com sucesso em ${filePath}.\n\nINSTRUÇÃO OBRIGATÓRIA: A sua resposta final para o usuário DEVE conter a tag do arquivo. Copie e cole EXATAMENTE o texto abaixo como sua resposta final, sem adicionar mais nenhuma palavra:\n\nO documento está pronto! [SEND_PDF:${filePath}]`;
         };
 
-        // Adiciona a Promise ao gerenciador e pega o ID da tarefa
         const taskId = taskManager.execute(reportPromise());
 
         return {
@@ -98,7 +93,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
     }
 
-    // 3. Ferramenta de verificação de status
     if (request.params.name === "check_report_task") {
         const { taskId } = request.params.arguments as any;
         return taskManager.check(taskId);

@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(npx skills *)",
+      "Bash(dir \"%USERPROFILE%\\\\.agents\\\\skills\" /s /b)",
+      "PowerShell(Get-ChildItem \"$env:USERPROFILE\\\\.agents\" -Recurse | Select-Object FullName | head -20)"
+    ]
+  }
+}
