@@ -4,7 +4,11 @@
       "WebSearch",
       "Bash(npx skills *)",
       "Bash(dir \"%USERPROFILE%\\\\.agents\\\\skills\" /s /b)",
-      "PowerShell(Get-ChildItem \"$env:USERPROFILE\\\\.agents\" -Recurse | Select-Object FullName | head -20)"
+      "PowerShell(Get-ChildItem \"$env:USERPROFILE\\\\.agents\" -Recurse | Select-Object FullName | head -20)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\edubo\\\\Desktop\\\\Projetos 2026\\\\WGPT\" -Force)",
+      "Bash(Select-Object Name, FullName)",
+      "Bash(Format-Table -AutoSize)",
+      "Bash(npm install *)"
     ]
   }
 }
