@@ -18,6 +18,7 @@ import path from 'path';
 import os from 'os';
 import fs from 'fs';
 import { getDb } from "./utils/database.js";
+import { transcribeAudio } from "./utils/transcription.js";
 
 
 
@@ -111,6 +112,15 @@ const seversConfig: ClientConfig = {
                 STRAVA_ACCESS_TOKEN: process.env.STRAVA_ACCESS_TOKEN || "",
             }
         },
+        taskManager: {
+            transport: "stdio",
+            command: "npx",
+            args: ["tsx", "./src/servers/task-manager.ts"],
+            env: {
+                ...process.env,
+                FIREBASE_SERVICE_ACCOUNT_PATH: process.env.FIREBASE_SERVICE_ACCOUNT_PATH || "",
+            }
+        },
 
     },
     useStandardContentBlocks: true
@@ -184,6 +194,14 @@ Ferramentas assíncronas NÃO devolvem o resultado final na hora. Elas retornam 
 
 * 🗄️ **Banco de Dados SQLite:**
     - Use 'ask_sql_specialist' sempre que o usuário pedir dados do banco, relatórios, contagens ou alterações. Passe o pedido em linguagem natural — o especialista cuida do schema, das queries e da interpretação dos resultados.
+
+* ✅ **Gerenciamento de Tarefas (Task Manager):**
+    - Para CRIAR uma tarefa (ex: "me lembra de ir ao médico amanhã às 9h", "cria uma tarefa para sexta"): use 'create_task' com description, dateISO (YYYY-MM-DD) e timeISO (HH:MM) se houver horário. ⚠️ SÍNCRONA — confirme ao usuário imediatamente após criar.
+    - Para LISTAR tarefas (ex: "quais tarefas tenho amanhã?", "o que tenho pra hoje?"): use 'list_tasks_by_date' com dateISO. ⚠️ SÍNCRONA — retorna o resultado imediatamente. NÃO use o padrão de tarefa assíncrona.
+    - Para CONCLUIR uma tarefa: use 'complete_task' com o taskId (obtido via list_tasks_by_date). SÍNCRONA.
+    - Para DELETAR uma tarefa: use 'delete_task' com o taskId. SÍNCRONA.
+    - Resolva expressões de data relativas (hoje, amanhã, sexta, semana que vem) para o formato ISO antes de chamar as ferramentas. A data de hoje é ${new Date().toISOString().split('T')[0]}.
+    - Resolva expressões de data relativas (hoje, amanhã, sexta, semana que vem) para o formato ISO antes de chamar as ferramentas. A data de hoje é ${new Date().toISOString().split('T')[0]}.
 `
     });
 }
@@ -265,7 +283,10 @@ async function connectToWhatsApp() {
             senderInfo = `${senderInfo}@s.whatsapp.net`;
         }
 
-        console.log(`\n📩 Mensagem recebida no chat: ${chatId} | Pelo utilizador: ${senderInfo}`);
+        // Número de telefone limpo extraído do chatId (ex: "5511939134918")
+        const phoneNumber = chatId.replace('@s.whatsapp.net', '').replace(/@.*/, '');
+
+        console.log(`\n📩 Mensagem recebida no chat: ${chatId} | Pelo utilizador: ${senderInfo} | Telefone: ${phoneNumber}`);
 
         const documentMsg = msg.message?.documentMessage || msg.message?.documentWithCaptionMessage?.message?.documentMessage;
         const isDocument = !!documentMsg; 
@@ -275,7 +296,7 @@ async function connectToWhatsApp() {
             documentMsg?.caption;
 
 
-        let messageToAgent = `[Mensagem de: ${senderInfo}] ${reciveText}`;
+        let messageToAgent = `[Mensagem de: ${senderInfo} | Telefone: ${phoneNumber}] ${reciveText}`;
 
         if (reciveText && reciveText.startsWith('🤖')) {
             return;
@@ -354,9 +375,35 @@ O que o usuário disse: "${reciveText || 'Faça uma análise resumida desta plan
             }
         }
 
+        // Detectar mensagem de áudio (ptt ou audioMessage)
+        const audioMsg = msg.message?.audioMessage;
+        if (audioMsg && !isDocument) {
+            console.log("🎙️ Áudio detetado! A transcrever...");
+            try {
+                const audioBuffer = await downloadMediaMessage(
+                    msg,
+                    'buffer',
+                    {},
+                    { logger: console as any, reuploadRequest: sock.updateMediaMessage }
+                );
+                const tempPath = path.join(os.tmpdir(), `audio_${Date.now()}.ogg`);
+                fs.writeFileSync(tempPath, audioBuffer as Buffer);
+                try {
+                    const transcription = await transcribeAudio(tempPath);
+                    console.log(`🎙️ Transcrição: "${transcription}"`);
+                    messageToAgent = `[SISTEMA]: O usuário enviou um áudio que foi transcrito automaticamente. Responda ao conteúdo da transcrição de forma natural, sem mencionar que não consegue ouvir áudios. Número do usuário: ${senderInfo} | Telefone: ${phoneNumber}. Transcrição: "${transcription}"`;
+                } finally {
+                    fs.unlinkSync(tempPath);
+                }
+            } catch (error) {
+                console.error("❌ Erro ao transcrever áudio:", error);
+                messageToAgent = `[SISTEMA]: O usuário enviou um áudio, mas ocorreu um erro na transcrição. Avise-o sobre a falha.`;
+            }
+        }
+
         if (messageToAgent && agent) {
 
-            console.log(`A processar entrada para a IA: ${isDocument ? '[Ficheiro PDF]' : reciveText}`);
+            console.log(`A processar entrada para a IA: ${isDocument ? '[Ficheiro PDF]' : audioMsg ? `[Áudio] ${reciveText ?? '(transcrito)'}` : reciveText}`);
 
             
             await sock.sendPresenceUpdate('composing', chatId)
