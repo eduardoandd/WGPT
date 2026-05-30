@@ -3,5 +3,8 @@ build/
 .env
 .env.*
 auth_info_baileys/
-./database.sqlite
-./librarian.sqlite
+database.sqlite
+librarian.sqlite
+*.sqlite
+firebase-service-account.json
+strava_tokens.json
