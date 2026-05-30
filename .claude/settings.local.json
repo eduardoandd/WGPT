@@ -7,7 +7,10 @@
       "PowerShell(Get-ChildItem \"$env:USERPROFILE\\\\.agents\" -Recurse | Select-Object FullName | head -20)",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "WebFetch(domain:api.github.com)"
+      "WebFetch(domain:api.github.com)",
+      "PowerShell(cd 'C:\\\\Users\\\\Eduardo Santos\\\\Desktop\\\\Cursos\\\\projetos\\\\WGPT'; Get-ChildItem -Recurse -Depth 2 | Select-Object FullName, @{Name=\"Type\";Expression={if\\($_.PSIsContainer\\){\"DIR\"}else{\"FILE\"}}} | Format-Table -AutoSize)",
+      "Bash(gh api *)",
+      "Bash(npm install *)"
     ]
   }
 }
