@@ -74,7 +74,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
             const filePath = path.join(os.tmpdir(), fileName);
 
-            const browser = await puppeteer.launch({ headless: true });
+            const browser = await puppeteer.launch({
+                headless: true,
+                executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
+                args: ['--no-sandbox', '--disable-setuid-sandbox']
+            });
             const page = await browser.newPage();
             await page.setContent(fullHtml, { waitUntil: 'networkidle0' });
             await page.pdf({ path: filePath, format: 'A4', printBackground: true });

@@ -9,14 +9,16 @@ module.exports = {
         CLIENT_ADAPTER: "whatsapp"
       }
     },
-    {
-      name: "renan-bot",
-      script: "npx",
-      args: "tsx src/index.ts",
-      env: {
-        AGENT_PROFILE: "renan",
-        CLIENT_ADAPTER: "telegram"
-      }
-    }
+    // Adicione aqui os bots dos clientes quando estiverem prontos:
+    // {
+    //   name: "renan-bot",
+    //   script: "npx",
+    //   args: "tsx src/index.ts",
+    //   env: {
+    //     AGENT_PROFILE: "renan",
+    //     CLIENT_ADAPTER: "telegram",
+    //     TELEGRAM_BOT_TOKEN: "token-do-renan"
+    //   }
+    // },
   ]
 };
