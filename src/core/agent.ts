@@ -116,7 +116,7 @@ O que o usuário disse: "${msg.text || 'Faça uma análise resumida desta planil
 
         } catch (error) {
             console.error("❌ Erro ao processar mensagem:", error);
-            await adapter.sendText(msg.chatId, "🤖 Desculpe, os meus sensores estão offline no momento. 🌧️");
+            await adapter.sendText(msg.chatId, "Desculpe, os meus sensores estão offline no momento. 🌧️");
         }
     }
 
@@ -152,8 +152,8 @@ O que o usuário disse: "${msg.text || 'Faça uma análise resumida desta planil
         }
 
         if (aiResponse.length > 0) {
-            await adapter.sendText(chatId, `🤖 ${aiResponse}`);
-            console.log(`🤖 Resposta enviada para o chat (${chatId})`);
+            await adapter.sendText(chatId, aiResponse);
+            console.log(`Resposta enviada para o chat (${chatId})`);
         }
     }
 

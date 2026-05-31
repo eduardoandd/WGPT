@@ -87,7 +87,6 @@ export class WhatsAppAdapter implements ClientAdapter {
                 || msg.message?.extendedTextMessage?.text
                 || documentMsg?.caption;
 
-            if (text?.startsWith('🤖')) return;
 
             const incomingMsg: IncomingMessage = { sessionId, chatId, text };
 
@@ -115,7 +114,7 @@ export class WhatsAppAdapter implements ClientAdapter {
                         };
                     } catch (error) {
                         console.error('❌ Erro ao baixar ficheiro:', error);
-                        await this.sendText(chatId, "🤖 Ocorreu um erro ao receber o teu ficheiro. Tenta novamente.");
+                        await this.sendText(chatId, "Ocorreu um erro ao receber o teu ficheiro. Tenta novamente.");
                         return;
                     }
                 }
@@ -143,7 +142,7 @@ export class WhatsAppAdapter implements ClientAdapter {
                     }
                 } catch (error) {
                     console.error("❌ Erro ao transcrever áudio:", error);
-                    await this.sendText(chatId, "🤖 Ocorreu um erro ao transcrever o teu áudio. Tenta novamente.");
+                    await this.sendText(chatId, "Ocorreu um erro ao transcrever o teu áudio. Tenta novamente.");
                     return;
                 }
             }

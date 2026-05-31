@@ -27,7 +27,7 @@ export class TelegramAdapter implements ClientAdapter {
             const sessionId = `tg-${ctx.from.id}`;
             const text = ctx.message.text;
 
-            if (text?.startsWith('🤖')) return;
+
 
             console.log(`\n📩 Telegram | chat: ${chatId} | sessão: ${sessionId}`);
 
@@ -67,7 +67,7 @@ export class TelegramAdapter implements ClientAdapter {
                     };
                 } catch (error) {
                     console.error('❌ Erro ao baixar ficheiro do Telegram:', error);
-                    await this.sendText(chatId, "🤖 Ocorreu um erro ao receber o teu ficheiro. Tenta novamente.");
+                    await this.sendText(chatId, "Ocorreu um erro ao receber o teu ficheiro. Tenta novamente.");
                     return;
                 }
             }
