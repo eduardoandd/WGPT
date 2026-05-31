@@ -4,11 +4,12 @@ import { WhatsAppAdapter } from "./clients/whatsapp.js";
 import { CLIAdapter } from "./clients/cli.js";
 import { TelegramAdapter } from "./clients/telegram.js";
 import { ClientAdapter } from "./core/types.js";
+import { AGENT_PROFILES } from "./agents/index.js";
 import { getDb } from "./utils/database.js";
 
-// CLIENT_ADAPTER=whatsapp  →  npm run dev
-// CLIENT_ADAPTER=cli       →  npm run dev:cli
-// CLIENT_ADAPTER=telegram  →  npm run dev:telegram
+// AGENT_PROFILE=eduardo  CLIENT_ADAPTER=whatsapp   → npm run dev
+// AGENT_PROFILE=eduardo  CLIENT_ADAPTER=cli         → npm run dev:cli
+// AGENT_PROFILE=eduardo  CLIENT_ADAPTER=telegram    → npm run dev:telegram
 
 function createAdapter(): ClientAdapter {
     const channel = (process.env.CLIENT_ADAPTER ?? 'whatsapp').toLowerCase();
@@ -33,7 +34,19 @@ async function start() {
     try {
         await getDb();
 
-        const core = new AgentCore();
+        const profileName = (process.env.AGENT_PROFILE ?? 'eduardo').toLowerCase();
+        const channelName = (process.env.CLIENT_ADAPTER ?? 'whatsapp').toLowerCase();
+
+        const agentConfig = AGENT_PROFILES[profileName];
+        if (!agentConfig) {
+            console.error(`❌ Perfil de agente desconhecido: "${profileName}". Disponíveis: ${Object.keys(AGENT_PROFILES).join(', ')}`);
+            process.exit(1);
+        }
+
+        console.log(`🤖 Perfil: ${profileName} | 📡 Canal: ${channelName}`);
+
+        const threadPrefix = `${profileName}:${channelName}`;
+        const core = new AgentCore(agentConfig, threadPrefix);
         await core.initialize();
 
         const adapter = createAdapter();

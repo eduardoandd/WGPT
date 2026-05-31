@@ -24,3 +24,12 @@ export interface ClientAdapter {
   /** Opcional: indica que o bot está digitando */
   setTyping?(chatId: string): Promise<void>
 }
+
+export interface AgentConfig {
+  /** System prompt do agente */
+  systemPrompt: string | (() => string)
+  /** Servidores MCP disponíveis para este perfil */
+  servers: Record<string, any>
+  /** Modelo a usar (opcional, usa fastModel por padrão) */
+  model?: any
+}

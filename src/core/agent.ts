@@ -1,203 +1,76 @@
-import { ClientConfig, MultiServerMCPClient } from "@langchain/mcp-adapters";
-import "dotenv/config";
-import { MemorySaver } from "@langchain/langgraph";
+import { MultiServerMCPClient } from "@langchain/mcp-adapters";
+import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
 import { createAgent } from "langchain";
-import { HumanMessage } from "@langchain/core/messages";
+import { HumanMessage, SystemMessage, trimMessages } from "@langchain/core/messages";
 import { fastModel } from "../utils/models.js";
+
+const MAX_MESSAGES = 20;
 import path from "path";
 import os from "os";
 import fs from "fs";
-import { IncomingMessage, ClientAdapter } from "./types.js";
-
-// ─── Configuração dos servidores MCP ─────────────────────────────────────────
-
-const serversConfig: ClientConfig = {
-    mcpServers: {
-        ingestPdf: {
-            transport: "stdio",
-            command: "npx",
-            args: ["tsx", "./src/servers/ingest-pdf.ts"],
-            env: {
-                ...process.env,
-                OPENAI_API_KEY: process.env.OPENAI_API_KEY || "",
-                QDRANT_URL: process.env.QDRANT_URL || "",
-                QDRANT_API_KEY: process.env.QDRANT_API_KEY || "",
-            }
-        },
-        retrieverPdf: {
-            transport: "stdio",
-            command: "npx",
-            args: ["tsx", "./src/servers/retriever-pdf.ts"],
-            env: {
-                ...process.env,
-                OPENAI_API_KEY: process.env.OPENAI_API_KEY || "",
-                QDRANT_URL: process.env.QDRANT_URL || "",
-                QDRANT_API_KEY: process.env.QDRANT_API_KEY || "",
-            }
-        },
-        librarian: {
-            transport: "stdio",
-            command: "npx",
-            args: ["tsx", "./src/servers/librarian.ts"],
-            env: {
-                ...process.env,
-                OPENAI_API_KEY: process.env.OPENAI_API_KEY || "",
-                QDRANT_URL: process.env.QDRANT_URL || "",
-                QDRANT_API_KEY: process.env.QDRANT_API_KEY || "",
-            }
-        },
-        reportGenerator: {
-            transport: "stdio",
-            command: "npx",
-            args: ["tsx", "./src/servers/generate-report.ts"],
-            env: process.env as any
-        },
-        emailSender: {
-            transport: "stdio",
-            command: "npx",
-            args: ["tsx", "./src/servers/send-email.ts"],
-            env: process.env as any
-        },
-        cnpjSearcher: {
-            transport: "stdio",
-            command: "npx",
-            args: ["tsx", "./src/servers/cnpj-search.ts"],
-            env: process.env as any
-        },
-        spreadsheetReader: {
-            transport: "stdio",
-            command: "npx",
-            args: ["tsx", "./src/servers/spreadsheet-reader.ts"],
-            env: process.env as any
-        },
-        apiTester: {
-            transport: "stdio",
-            command: "npx",
-            args: ["tsx", "./src/servers/api-tester.ts"],
-            env: process.env as any
-        },
-        webSearch: {
-            transport: "stdio",
-            command: "npx",
-            args: ["tsx", "./src/servers/web-search.ts"],
-            env: {
-                ...process.env,
-                TAVILY_API_KEY: process.env.TAVILY_API_KEY || "",
-            }
-        },
-        sqliteManager: {
-            transport: "stdio",
-            command: "npx",
-            args: ["tsx", "./src/servers/sqlite-manager.ts"],
-            env: process.env as any
-        },
-        stravaAgent: {
-            transport: "stdio",
-            command: "npx",
-            args: ["tsx", "./src/servers/strava-agent.ts"],
-            env: {
-                ...process.env,
-                OPENAI_API_KEY: process.env.OPENAI_API_KEY || "",
-                STRAVA_ACCESS_TOKEN: process.env.STRAVA_ACCESS_TOKEN || "",
-            }
-        },
-        taskManager: {
-            transport: "stdio",
-            command: "npx",
-            args: ["tsx", "./src/servers/task-manager.ts"],
-            env: {
-                ...process.env,
-                FIREBASE_SERVICE_ACCOUNT_PATH: process.env.FIREBASE_SERVICE_ACCOUNT_PATH || "",
-                TASK_USER_ID: process.env.TASK_USER_ID || "",
-            }
-        },
-    },
-    useStandardContentBlocks: true
-};
-
-// ─── System Prompt ────────────────────────────────────────────────────────────
-
-const SYSTEM_PROMPT = `
-Você é um assistente executivo virtual prestativo e de alto nível. Responda SEMPRE em português brasileiro.
-
-### 1. FORMATAÇÃO E RESPOSTAS
-- Use APENAS a formatação nativa do WhatsApp: coloque palavras entre asteriscos para *negrito* e underlines para _itálico_.
-- NUNCA envie tabelas em Markdown no chat.
-- O uso de Markdown avançado (com tabelas e formatações complexas) é ESTRITAMENTE OBRIGATÓRIO E EXCLUSIVO para preencher o parâmetro 'markdownContent' da ferramenta 'generate_pdf_report'. No chat com o usuário, mantenha texto simples e limpo.
-- Use emojis sempre que enriquecer a mensagem — no início de seções, ao lado de dados importantes ou para dar personalidade à resposta. Seja expressivo e natural, como um assistente humano faria.
-
-### 2. ⚠️ REGRA DE OURO: TAREFAS ASSÍNCRONAS (SQL, APIs Pesadas)
-Ferramentas assíncronas NÃO devolvem o resultado final na hora. Elas retornam um texto informando o 'ID da Tarefa' e o 'Nome da ferramenta de verificação'. Quando acionar uma destas ferramentas, siga EXATAMENTE estes passos:
-1. Escreva uma resposta natural e curta avisando o usuário que está a processar o pedido (ex: "⏳ Estou analisando os dados, aviso em instantes!").
-2. OBRIGATORIAMENTE inclua a tag oculta no FINAL da sua resposta. Use EXATAMENTE o texto que a ferramenta pedir.
-3. Substitua a palavra 'ID' pelo código real e único (UUID) que a ferramenta lhe devolveu. NUNCA escreva literalmente a palavra "ID".
-4. NUNCA, em hipótese alguma, mencione a palavra "Task ID", mostre o código do ID, ou fale o nome da ferramenta no texto da conversa visível ao usuário. O ID vive apenas dentro da tag.
-
-### 3. DIRETRIZES DE USO DAS FERRAMENTAS
-
-* 📊 **Planilhas e Relatórios:**
-    - Se o usuário enviar uma planilha: Use 'ask_spreadsheet_specialist' passando o caminho do arquivo e a pergunta do usuário. O especialista faz a análise completa e retorna os insights prontos.
-    - Após receber a análise, ofereça ao usuário gerar um relatório PDF com 'generate_pdf_report_async'.
-    - Se o usuário pedir um relatório sem planilha: Use 'generate_pdf_report_async' diretamente.
-
-* ✉️ **Envio de E-mails:**
-    - Se o usuário pedir para enviar um documento ou relatório por e-mail:
-      1. Se o documento ainda não existir, use PRIMEIRO 'generate_pdf_report' para criá-lo.
-      2. Com o caminho do arquivo em mãos, use 'send_email' passando-o no parâmetro 'attachmentPath'.
-      3. Avise o usuário amigavelmente após o envio bem-sucedido.
-
-* 🌐 **Pesquisas e Atualidades:**
-    - Se o usuário perguntar sobre notícias, cotações, dados atuais, mercado ou eventos recentes: Utilize a ferramenta 'web_search' para buscar informações reais na internet antes de responder.
-
-* 📂 **Gestão de Arquivos (Librarian/Retriever):**
-    - Se você não tiver certeza de qual fonte de dados ou documento o usuário está falando, acione primeiro a ferramenta 'list_my_files'. Se ainda houver dúvidas, pergunte ao usuário.
-    - Pode ingerir ou buscar embeddings de documentos para responder a perguntas baseadas neles.
-
-* 🔌 **Teste de APIs e Redes:**
-    - Se pedirem para agir como Postman, testar endpoint ou fazer requisição: Use as ferramentas de HTTP Request. Forneça os resultados de forma limpa (Status Code e dados). Se o retorno for massivo, destaque apenas as partes principais.
-    - ⚠️ **DADOS SENSÍVEIS:** Quando o usuário fornecer um Token (JWT, Bearer), Chave de API, Hash ou URL, você DEVE copiá-lo EXATAMENTE caractere por caractere para dentro das ferramentas. NUNCA altere, resuma ou modifique esses dados.
-
-* 🏃 **Strava e Atividades Físicas:**
-    - Se o usuário perguntar sobre treinos, corridas, caminhadas, performance, calorias, ritmo ou histórico esportivo: use a ferramenta 'ask_strava_specialist'.
-    - Passe no parâmetro 'question' o pedido do usuário com contexto suficiente. O especialista cuida de tudo sozinho — não tente buscar IDs ou decidir qual endpoint usar.
-
-* 🗄️ **Banco de Dados SQLite:**
-    - Use 'ask_sql_specialist' sempre que o usuário pedir dados do banco, relatórios, contagens ou alterações. Passe o pedido em linguagem natural — o especialista cuida do schema, das queries e da interpretação dos resultados.
-
-* ✅ **Tarefas e Lembretes:**
-    - Se o usuário pedir para lembrar, agendar, criar tarefa ou verificar compromissos: use as ferramentas do 'taskManager' (create_task, list_tasks_by_date, complete_task, delete_task).
-    - Ao criar uma tarefa, confirme amigavelmente com data e horário.
-    - Ao listar tarefas, apresente de forma clara com status (✅ concluída / ⏳ pendente).
-`;
-
-// ─── AgentCore ────────────────────────────────────────────────────────────────
+import { IncomingMessage, ClientAdapter, AgentConfig } from "./types.js";
 
 export class AgentCore {
     private mcpClient!: MultiServerMCPClient;
     private mcpTools: any[] = [];
     private agent: any = null;
+    private config: AgentConfig;
+    private threadPrefix: string;
+
+    /**
+     * @param config  Perfil do agente (prompt + servidores MCP + modelo)
+     * @param threadPrefix  Prefixo para isolar memórias: "{perfil}:{canal}"
+     */
+    constructor(config: AgentConfig, threadPrefix: string) {
+        this.config = config;
+        this.threadPrefix = threadPrefix;
+    }
 
     async initialize(): Promise<void> {
         console.log("🚀 A iniciar o núcleo do agente...");
 
-        this.mcpClient = new MultiServerMCPClient(serversConfig);
+        this.mcpClient = new MultiServerMCPClient({
+            mcpServers: this.config.servers,
+            useStandardContentBlocks: true
+        });
         this.mcpTools = await this.mcpClient.getTools();
-
         console.log(`🔧 Ferramentas disponíveis: ${this.mcpTools.length}`);
 
-        const checkpointer = new MemorySaver();
+        if (!process.env.DATABASE_URL) {
+            throw new Error("❌ DATABASE_URL não definida no .env (necessária para persistência no Supabase)");
+        }
+
+        const checkpointer = PostgresSaver.fromConnString(process.env.DATABASE_URL);
+        await checkpointer.setup();
+
+        const systemPromptText = typeof this.config.systemPrompt === 'function'
+            ? this.config.systemPrompt()
+            : this.config.systemPrompt;
+
+        const systemMessage = new SystemMessage(systemPromptText);
 
         this.agent = createAgent({
-            model: fastModel,
+            model: this.config.model ?? fastModel,
             tools: this.mcpTools,
             checkpointer,
-            systemPrompt: SYSTEM_PROMPT
+            messageModifier: (messages: any[]) => {
+                const nonSystem = messages.filter((m: any) => !(m instanceof SystemMessage));
+                const trimmed = trimMessages(nonSystem, {
+                    maxTokens: MAX_MESSAGES,
+                    strategy: "last",
+                    tokenCounter: (msgs: any[]) => msgs.length,
+                    includeSystem: false,
+                    startOn: "human",
+                });
+                return [systemMessage, ...trimmed];
+            }
         });
 
         console.log("✅ Núcleo do agente pronto.");
     }
 
     async processMessage(msg: IncomingMessage, adapter: ClientAdapter): Promise<void> {
+        const threadId = `${this.threadPrefix}:${msg.sessionId}`;
         let messageToAgent: string;
 
         if (msg.attachment) {
@@ -230,7 +103,7 @@ O que o usuário disse: "${msg.text || 'Faça uma análise resumida desta planil
         try {
             const result = await this.agent.invoke(
                 { messages: [new HumanMessage(messageToAgent)] },
-                { configurable: { thread_id: msg.sessionId } }
+                { configurable: { thread_id: threadId } }
             );
 
             let aiResponse = result.messages[result.messages.length - 1].content;
@@ -239,7 +112,7 @@ O que o usuário disse: "${msg.text || 'Faça uma análise resumida desta planil
                 aiResponse = aiResponse.map((block: any) => block.text || '').join('\n');
             }
 
-            await this.handleAgentResponse(aiResponse, msg.chatId, msg.sessionId, adapter);
+            await this.handleAgentResponse(aiResponse, msg.chatId, threadId, adapter);
 
         } catch (error) {
             console.error("❌ Erro ao processar mensagem:", error);
@@ -250,10 +123,9 @@ O que o usuário disse: "${msg.text || 'Faça uma análise resumida desta planil
     private async handleAgentResponse(
         aiResponse: string,
         chatId: string,
-        sessionId: string,
+        threadId: string,
         adapter: ClientAdapter
     ): Promise<void> {
-
         const pdfTagRegex = /\[SEND_PDF:\s*(.+?)\]/;
         const pdfMatch = aiResponse.match(pdfTagRegex);
 
@@ -276,7 +148,7 @@ O que o usuário disse: "${msg.text || 'Faça uma análise resumida desta planil
             const checkToolName = taskMatch[1].trim();
             const taskId = taskMatch[2].trim();
             aiResponse = aiResponse.replace(taskTagRegex, '').trim();
-            this.monitorTaskInBackground(checkToolName, taskId, chatId, sessionId, adapter);
+            this.monitorTaskInBackground(checkToolName, taskId, chatId, threadId, adapter);
         }
 
         if (aiResponse.length > 0) {
@@ -289,7 +161,7 @@ O que o usuário disse: "${msg.text || 'Faça uma análise resumida desta planil
         checkToolName: string,
         taskId: string,
         chatId: string,
-        sessionId: string,
+        threadId: string,
         adapter: ClientAdapter
     ): void {
         console.log(`👀 Monitorando tarefa: ${taskId} | Ferramenta: ${checkToolName}`);
@@ -328,7 +200,7 @@ O que o usuário disse: "${msg.text || 'Faça uma análise resumida desta planil
 
                 const agentResult = await this.agent.invoke(
                     { messages: [{ role: "user", content: notificationPrompt }] },
-                    { configurable: { thread_id: sessionId } }
+                    { configurable: { thread_id: threadId } }
                 );
 
                 let finalMessage = agentResult.messages[agentResult.messages.length - 1].content;
@@ -337,7 +209,7 @@ O que o usuário disse: "${msg.text || 'Faça uma análise resumida desta planil
                     finalMessage = finalMessage.map((block: any) => block.text || '').join('\n');
                 }
 
-                await this.handleAgentResponse(finalMessage, chatId, sessionId, adapter);
+                await this.handleAgentResponse(finalMessage, chatId, threadId, adapter);
 
             } catch (error) {
                 console.error(`❌ Erro ao monitorizar a tarefa ${taskId}:`, error);
