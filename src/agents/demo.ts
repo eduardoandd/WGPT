@@ -85,12 +85,6 @@ Today's date: ${new Date().toISOString().split('T')[0]}.
             args: ["tsx", "./src/servers/spreadsheet-reader.ts"],
             env: process.env as any
         },
-        sqliteManager: {
-            transport: "stdio",
-            command: "npx",
-            args: ["tsx", "./src/servers/sqlite-manager.ts"],
-            env: process.env as any
-        },
         reportGenerator: {
             transport: "stdio",
             command: "npx",
@@ -99,6 +93,15 @@ Today's date: ${new Date().toISOString().split('T')[0]}.
                 ...process.env,
                 PUPPETEER_EXECUTABLE_PATH: process.env.PUPPETEER_EXECUTABLE_PATH || "",
                 PUPPETEER_SKIP_DOWNLOAD: "true",
+            }
+        },
+        sqliteManager: {
+            transport: "stdio",
+            command: "npx",
+            args: ["tsx", "./src/servers/sqlite-manager.ts"],
+            env: {
+                ...process.env,
+                SQLITE_DB_PATH: "demo-company.sqlite",
             }
         },
         emailSender: {

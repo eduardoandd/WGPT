@@ -9,13 +9,20 @@ import { fastModel } from "../utils/models.js";
 import sqlite3 from 'sqlite3';
 import { open } from 'sqlite';
 import path from 'path';
+import { AsyncTaskManager } from "../utils/async-task.js";
 import "dotenv/config";
+
+const taskManager = new AsyncTaskManager();
 
 const server = new Server({ name: "sqlite-agent", version: "2.0.0" }, { capabilities: { tools: {} } });
 
+const DB_PATH = process.env.SQLITE_DB_PATH
+    ? path.resolve(process.cwd(), process.env.SQLITE_DB_PATH)
+    : path.resolve(process.cwd(), 'database.sqlite');
+
 async function getDb() {
     const db = await open({
-        filename: path.resolve(process.cwd(), 'database.sqlite'),
+        filename: DB_PATH,
         driver: sqlite3.Database
     });
     await db.exec('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 20000;');
@@ -137,17 +144,26 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     return {
         tools: [
             {
-                name: "ask_sql_specialist",
-                description: "Aciona o agente especialista em banco de dados SQLite. Ele inspeciona o schema, escreve e executa as queries necessárias e retorna uma análise interpretada. Use para consultas, relatórios, inserções ou qualquer operação no banco de dados.",
+                name: "ask_sql_specialist_async",
+                description: "Triggers the SQL specialist agent in the background. It inspects the schema, writes and executes the needed queries, and returns an interpreted analysis. ASYNC: returns a Task ID. You MUST use [MONITOR_TASK: check_sql_task | ID] tag in your response.",
                 inputSchema: {
                     type: "object",
                     properties: {
                         question: {
                             type: "string",
-                            description: "O pedido do usuário em linguagem natural (ex: 'Quantos usuários estão cadastrados?', 'Liste as últimas 10 vendas', 'Qual o total de receita do mês?')"
+                            description: "The user's request in natural language (e.g. 'How many customers do we have?', 'Show top 5 products by revenue', 'What is the total sales this month?')"
                         }
                     },
                     required: ["question"]
+                }
+            },
+            {
+                name: "check_sql_task",
+                description: "Checks the result of a previously submitted SQL analysis task.",
+                inputSchema: {
+                    type: "object",
+                    properties: { taskId: { type: "string" } },
+                    required: ["taskId"]
                 }
             }
         ]
@@ -155,10 +171,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 });
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    if (request.params.name === "ask_sql_specialist") {
+    if (request.params.name === "ask_sql_specialist_async") {
         const { question } = request.params.arguments as { question: string };
 
-        try {
+        const analysisPromise = async () => {
             console.error(`\n🧠 [SQL Agent] Iniciando análise para: "${question}"`);
             const result = await sqlAgent.invoke({
                 messages: [new HumanMessage(question)]
@@ -170,15 +186,25 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 : JSON.stringify(lastMessage.content);
 
             console.error("✅ [SQL Agent] Análise concluída.");
-            return { content: [{ type: "text", text: answer }] };
+            return answer;
+        };
 
-        } catch (error: any) {
-            console.error("❌ [SQL Agent] Erro:", error.message);
-            return { content: [{ type: "text", text: `Erro no banco de dados: ${error.message}` }], isError: true };
-        }
+        const taskId = taskManager.execute(analysisPromise());
+
+        return {
+            content: [{
+                type: "text",
+                text: `Analysis started in background.\n\nMANDATORY INSTRUCTION:\nCopy the exact ID below and place it in your monitoring tag.\nID: ${taskId}\nTool: check_sql_task\nExpected format in your response: [MONITOR_TASK: check_sql_task | ${taskId}]`
+            }]
+        };
     }
 
-    return { content: [{ type: "text", text: "Ferramenta desconhecida" }], isError: true };
+    if (request.params.name === "check_sql_task") {
+        const { taskId } = request.params.arguments as any;
+        return taskManager.check(taskId);
+    }
+
+    return { content: [{ type: "text", text: "Unknown tool" }], isError: true };
 });
 
 async function runServer() {
