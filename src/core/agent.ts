@@ -1,6 +1,6 @@
 import { MultiServerMCPClient } from "@langchain/mcp-adapters";
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
-import { createAgent } from "langchain";
+import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { HumanMessage, SystemMessage, trimMessages } from "@langchain/core/messages";
 import { fastModel } from "../utils/models.js";
 
@@ -49,13 +49,13 @@ export class AgentCore {
 
         const systemMessage = new SystemMessage(systemPromptText);
 
-        this.agent = createAgent({
-            model: this.config.model ?? fastModel,
+        this.agent = createReactAgent({
+            llm: this.config.model ?? fastModel,
             tools: this.mcpTools,
-            checkpointer,
-            messageModifier: (messages: any[]) => {
+            checkpointSaver: checkpointer,
+            messageModifier: async (messages: any[]) => {
                 const nonSystem = messages.filter((m: any) => !(m instanceof SystemMessage));
-                const trimmed = trimMessages(nonSystem, {
+                const trimmed = await trimMessages(nonSystem, {
                     maxTokens: MAX_MESSAGES,
                     strategy: "last",
                     tokenCounter: (msgs: any[]) => msgs.length,
