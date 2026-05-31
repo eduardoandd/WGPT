@@ -1,7 +1,7 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import fs from 'fs';
-import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf.js";
+import pdfParse from "pdf-parse";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { fastModel } from "../utils/models.js";
@@ -76,12 +76,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     throw new Error("Arquivo não encontrado.");
                 }
 
-                const loader = new PDFLoader(filePath);
-                const docs = await loader.load();
+                const dataBuffer = fs.readFileSync(filePath);
+                const parsed = await pdfParse(dataBuffer);
 
-                if (docs.length === 0) {
+                if (!parsed.text?.trim()) {
                     throw new Error("Nenhum texto encontrado no PDF. O arquivo pode estar vazio ou ser baseado em imagens.");
                 }
+
+                const docs = [{ pageContent: parsed.text, metadata: {} }];
 
                 const textSplitter = new RecursiveCharacterTextSplitter({
                     chunkSize: 1000,
