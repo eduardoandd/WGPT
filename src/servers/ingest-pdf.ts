@@ -1,7 +1,7 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import fs from 'fs';
-import { GoogleDocAILoader } from "../loaders/pdfOCRLoader.js";
+import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf.js";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { fastModel } from "../utils/models.js";
@@ -76,17 +76,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     throw new Error("Arquivo não encontrado.");
                 }
 
-                const dataBuffer = fs.readFileSync(filePath);
-
-                const loader = new GoogleDocAILoader(dataBuffer, {
-                    filteType: "pdf" 
-                });
-
+                const loader = new PDFLoader(filePath);
                 const docs = await loader.load();
 
                 if (docs.length === 0) {
-                    console.warn("⚠️ O OCR processou o arquivo mas não retornou texto.");
-                    throw new Error("OCR retornou vazio (PDF escaneado ou imagem sem texto?).");
+                    throw new Error("Nenhum texto encontrado no PDF. O arquivo pode estar vazio ou ser baseado em imagens.");
                 }
 
                 const textSplitter = new RecursiveCharacterTextSplitter({

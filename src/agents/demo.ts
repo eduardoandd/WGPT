@@ -32,6 +32,11 @@ Some tools are asynchronous and return a Task ID instead of an immediate result.
     - Use 'generate_pdf_report_async' to generate professional PDF reports on demand.
     - After the PDF is ready, include the [SEND_PDF: path] tag in your response to deliver it to the user.
 
+* 📂 **PDF Document Analysis:**
+    - When the user sends a PDF, use 'ingest_pdf_async' to process and index it.
+    - To answer questions about indexed documents, use 'retrieve_pdf_context'.
+    - If unsure which document the user is referring to, call 'list_my_files' first.
+
 * ✉️ **Email:**
     - When the user asks to send a document or report by email:
       1. If the document does not exist yet, use 'generate_pdf_report_async' first.
@@ -41,6 +46,39 @@ Some tools are asynchronous and return a Task ID instead of an immediate result.
 Today's date: ${new Date().toISOString().split('T')[0]}.
 `,
     servers: {
+        ingestPdf: {
+            transport: "stdio",
+            command: "npx",
+            args: ["tsx", "./src/servers/ingest-pdf.ts"],
+            env: {
+                ...process.env,
+                OPENAI_API_KEY: process.env.OPENAI_API_KEY || "",
+                QDRANT_URL: process.env.QDRANT_URL || "",
+                QDRANT_API_KEY: process.env.QDRANT_API_KEY || "",
+            }
+        },
+        retrieverPdf: {
+            transport: "stdio",
+            command: "npx",
+            args: ["tsx", "./src/servers/retriever-pdf.ts"],
+            env: {
+                ...process.env,
+                OPENAI_API_KEY: process.env.OPENAI_API_KEY || "",
+                QDRANT_URL: process.env.QDRANT_URL || "",
+                QDRANT_API_KEY: process.env.QDRANT_API_KEY || "",
+            }
+        },
+        librarian: {
+            transport: "stdio",
+            command: "npx",
+            args: ["tsx", "./src/servers/librarian.ts"],
+            env: {
+                ...process.env,
+                OPENAI_API_KEY: process.env.OPENAI_API_KEY || "",
+                QDRANT_URL: process.env.QDRANT_URL || "",
+                QDRANT_API_KEY: process.env.QDRANT_API_KEY || "",
+            }
+        },
         spreadsheetReader: {
             transport: "stdio",
             command: "npx",
