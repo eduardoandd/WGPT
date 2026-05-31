@@ -3,7 +3,8 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprot
 import fs from 'fs';
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);
-const pdfParse = require("pdf-parse");
+const pdfParseModule = require("pdf-parse");
+const pdfParse = pdfParseModule.default ?? pdfParseModule;
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { fastModel } from "../utils/models.js";
