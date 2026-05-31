@@ -9,6 +9,15 @@ module.exports = {
         CLIENT_ADAPTER: "whatsapp"
       }
     },
+    {
+      name: "demo-bot",
+      script: "npx",
+      args: "tsx src/index.ts",
+      env: {
+        AGENT_PROFILE: "demo",
+        CLIENT_ADAPTER: "whatsapp"
+      }
+    },
     // Adicione aqui os bots dos clientes quando estiverem prontos:
     // {
     //   name: "renan-bot",
