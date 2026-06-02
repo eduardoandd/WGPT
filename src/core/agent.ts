@@ -166,6 +166,8 @@ O que o usuário disse: "${msg.text || 'Faça uma análise resumida desta planil
     ): void {
         console.log(`👀 Monitorando tarefa: ${taskId} | Ferramenta: ${checkToolName}`);
 
+        let checkCount = 0;
+
         const interval = setInterval(async () => {
             try {
                 const checkTool = this.mcpTools.find(t => t.name === checkToolName);
@@ -180,6 +182,10 @@ O que o usuário disse: "${msg.text || 'Faça uma análise resumida desta planil
                 const responseText = typeof result === 'string' ? result : JSON.stringify(result);
 
                 if (responseText.includes("ainda está em processamento")) {
+                    checkCount++;
+                    if (checkCount === 1) {
+                        await adapter.sendText(chatId, "⏳ Still working on it, this may take a moment...");
+                    }
                     return;
                 }
 
@@ -215,7 +221,7 @@ O que o usuário disse: "${msg.text || 'Faça uma análise resumida desta planil
                 console.error(`❌ Erro ao monitorizar a tarefa ${taskId}:`, error);
                 clearInterval(interval);
             }
-        }, 10000);
+        }, 15000);
     }
 
     async close(): Promise<void> {

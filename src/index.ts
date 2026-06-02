@@ -3,6 +3,7 @@ import { AgentCore } from "./core/agent.js";
 import { WhatsAppAdapter } from "./clients/whatsapp.js";
 import { CLIAdapter } from "./clients/cli.js";
 import { TelegramAdapter } from "./clients/telegram.js";
+import { SlackAdapter } from "./clients/slack.js";
 import { ClientAdapter } from "./core/types.js";
 import { AGENT_PROFILES } from "./agents/index.js";
 import { getDb } from "./utils/database.js";
@@ -22,6 +23,10 @@ function createAdapter(): ClientAdapter {
         case 'telegram':
             console.log("✈️  Adapter: Telegram");
             return new TelegramAdapter();
+
+        case 'slack':
+            console.log("💬 Adapter: Slack");
+            return new SlackAdapter();
 
         case 'whatsapp':
         default:

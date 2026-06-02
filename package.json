@@ -6,6 +6,8 @@
     "dev": "cross-env AGENT_PROFILE=eduardo CLIENT_ADAPTER=whatsapp tsx src/index.ts",
     "dev:cli": "cross-env AGENT_PROFILE=eduardo CLIENT_ADAPTER=cli tsx src/index.ts",
     "dev:telegram": "cross-env AGENT_PROFILE=eduardo CLIENT_ADAPTER=telegram tsx src/index.ts",
+    "dev:slack": "cross-env AGENT_PROFILE=demo CLIENT_ADAPTER=slack tsx src/index.ts",
+    "dev:slack:fresh": "cross-env AGENT_PROFILE=demo-v2 CLIENT_ADAPTER=slack tsx src/index.ts",
     "build": "tsc",
     "start": "node build/index.js"
   },
@@ -28,6 +30,7 @@
     "@langchain/textsplitters": "^1.0.1",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@qdrant/js-client-rest": "^1.17.0",
+    "@slack/bolt": "^4.7.3",
     "@types/pdf-parse": "^1.1.5",
     "@whiskeysockets/baileys": "^7.0.0-rc.9",
     "dotenv": "^17.3.1",

@@ -29,5 +29,16 @@ module.exports = {
     //     TELEGRAM_BOT_TOKEN: "token-do-renan"
     //   }
     // },
+    // {
+    //   name: "demo-slack",
+    //   script: "npx",
+    //   args: "tsx src/index.ts",
+    //   env: {
+    //     AGENT_PROFILE: "demo",
+    //     CLIENT_ADAPTER: "slack",
+    //     SLACK_BOT_TOKEN: "xoxb-...",
+    //     SLACK_APP_TOKEN: "xapp-..."
+    //   }
+    // },
   ]
 };

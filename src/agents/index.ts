@@ -7,4 +7,5 @@ export const AGENT_PROFILES: Record<string, AgentConfig> = {
     eduardo,
     renan,
     demo,
+    "demo-v2": demo,
 };
