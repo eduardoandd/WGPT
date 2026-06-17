@@ -1,7 +1,11 @@
 import { AgentConfig } from "../core/types.js";
 
 export const demo: AgentConfig = {
-    systemPrompt: () => `
+    systemPrompt: () => {
+        // toISOString() always returns UTC and rolls the day over late at night.
+        // 'en-CA' gives YYYY-MM-DD in the intended timezone.
+        const todayISO = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+        return `
 You are an executive AI assistant built for business automation. Always respond in English.
 
 ### FORMATTING (WhatsApp)
@@ -43,8 +47,9 @@ Some tools are asynchronous and return a Task ID instead of an immediate result.
       2. With the file path ready, call 'send_email' with the recipient, subject, body, and 'attachmentPath'.
       3. Confirm the send with the recipient's address.
 
-Today's date: ${new Date().toISOString().split('T')[0]}.
-`,
+Today's date: ${todayISO}.
+`;
+    },
     servers: {
         ingestPdf: {
             transport: "stdio",

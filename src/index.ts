@@ -49,6 +49,8 @@ async function start() {
         }
 
         console.log(`🤖 Perfil: ${profileName} | 📡 Canal: ${channelName}`);
+        console.log(`📅 Hoje (Brasília): ${new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' })}`);
+        console.log(`👤 TASK_USER_ID: ...${(process.env.TASK_USER_ID ?? '(vazio)').slice(-12)}`);
 
         const threadPrefix = `${profileName}:${channelName}`;
         const core = new AgentCore(agentConfig, threadPrefix);

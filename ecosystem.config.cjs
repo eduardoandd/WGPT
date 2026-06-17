@@ -6,7 +6,10 @@ module.exports = {
       args: "tsx src/index.ts",
       env: {
         AGENT_PROFILE: "eduardo",
-        CLIENT_ADAPTER: "whatsapp"
+        CLIENT_ADAPTER: "whatsapp",
+        // A VPS roda em UTC. Sem isso, o horário das tarefas (taskTime/
+        // notificationTime) é gravado 3h adiantado no Firestore.
+        TZ: "America/Sao_Paulo"
       }
     },
     // ⚠️ NÃO rode dois bots de WhatsApp sem WHATSAPP_AUTH_FOLDER diferente —

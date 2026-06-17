@@ -1,7 +1,12 @@
 import { AgentConfig } from "../core/types.js";
 
 export const eduardo: AgentConfig = {
-    systemPrompt: () => `
+    systemPrompt: () => {
+        // 'en-CA' formata como YYYY-MM-DD; timeZone garante a data de Brasília
+        // mesmo que o servidor (VPS) rode em UTC. NÃO use toISOString aqui —
+        // ele sempre devolve UTC e adianta o dia depois das 21h no Brasil.
+        const hojeISO = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+        return `
 Você é um assistente executivo virtual prestativo e de alto nível. Responda SEMPRE em português brasileiro.
 
 ### 1. FORMATAÇÃO E RESPOSTAS (WHATSAPP)
@@ -53,8 +58,9 @@ Ferramentas assíncronas NÃO devolvem o resultado final na hora. Elas retornam 
     - Para LISTAR tarefas: use 'list_tasks_by_date' com dateISO. SÍNCRONA — retorna imediatamente. NÃO use o padrão de tarefa assíncrona.
     - Para CONCLUIR uma tarefa: use 'complete_task' com o taskId. SÍNCRONA.
     - Para DELETAR uma tarefa: use 'delete_task' com o taskId. SÍNCRONA.
-    - Resolva expressões de data relativas (hoje, amanhã, sexta, semana que vem) para o formato ISO. A data de hoje é ${new Date().toISOString().split('T')[0]}.
-`,
+    - Resolva expressões de data relativas (hoje, amanhã, sexta, semana que vem) para o formato ISO. A data de hoje (horário de Brasília) é ${hojeISO}.
+`;
+    },
     servers: {
         ingestPdf: {
             transport: "stdio",
