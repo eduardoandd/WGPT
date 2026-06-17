@@ -13,7 +13,10 @@ import fs from 'fs';
 import { transcribeAudio } from '../utils/transcription.js';
 import { ClientAdapter, IncomingMessage } from '../core/types.js';
 
-const AUTH_FOLDER = 'auth_info_baileys';
+// Pasta de credenciais da sessão do WhatsApp. Cada bot de WhatsApp PRECISA da
+// sua própria pasta — dois processos na mesma pasta abrem a mesma sessão e
+// processam cada mensagem em dobro (respostas duplicadas + erros de conexão).
+const AUTH_FOLDER = process.env.WHATSAPP_AUTH_FOLDER ?? 'auth_info_baileys';
 
 const SPREADSHEET_MIMETYPES = new Set([
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -23,6 +26,7 @@ const SPREADSHEET_MIMETYPES = new Set([
 
 export class WhatsAppAdapter implements ClientAdapter {
     private sock: any = null;
+    private processedMessageIds = new Set<string>();
 
     async start(onMessage: (msg: IncomingMessage) => Promise<void>): Promise<void> {
         await this.connect(onMessage);
@@ -66,12 +70,29 @@ export class WhatsAppAdapter implements ClientAdapter {
         this.sock.ev.on('messages.upsert', async (m: any) => {
             if (!m.messages?.length) return;
 
+            // Só processa mensagens novas em tempo real. 'append' são mensagens
+            // antigas/sincronizadas que o Baileys reentrega ao (re)conectar.
+            if (m.type !== 'notify') return;
+
             const msg = m.messages[0];
             const chatId: string = msg.key.remoteJid!;
 
             if (!msg.message || chatId === 'status@broadcast') return;
             if (chatId?.endsWith('@g.us')) return;
             if (msg.key.fromMe) return;
+
+            // Dedup por ID: evita processar a mesma mensagem duas vezes
+            // (reentregas/retries do WhatsApp), o que causava respostas
+            // duplicadas e corrida de checkpoint no mesmo thread_id.
+            const messageId: string | undefined = msg.key.id;
+            if (messageId) {
+                if (this.processedMessageIds.has(messageId)) return;
+                this.processedMessageIds.add(messageId);
+                if (this.processedMessageIds.size > 1000) {
+                    const oldest = this.processedMessageIds.values().next().value;
+                    if (oldest) this.processedMessageIds.delete(oldest);
+                }
+            }
 
             let sessionId: string = msg.senderPn || msg.key.participant || msg.participant || chatId;
             if (sessionId && !sessionId.includes('@') && sessionId !== chatId) {

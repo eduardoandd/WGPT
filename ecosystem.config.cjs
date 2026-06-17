@@ -9,15 +9,25 @@ module.exports = {
         CLIENT_ADAPTER: "whatsapp"
       }
     },
-    {
-      name: "demo-bot",
-      script: "npx",
-      args: "tsx src/index.ts",
-      env: {
-        AGENT_PROFILE: "demo",
-        CLIENT_ADAPTER: "whatsapp"
-      }
-    },
+    // ⚠️ NÃO rode dois bots de WhatsApp sem WHATSAPP_AUTH_FOLDER diferente —
+    // eles compartilham a mesma sessão e respondem cada mensagem em dobro.
+    // O profile "demo" foi feito para o Slack (veja o script dev:slack):
+    // {
+    //   name: "demo-bot",
+    //   script: "npx",
+    //   args: "tsx src/index.ts",
+    //   env: {
+    //     AGENT_PROFILE: "demo",
+    //     CLIENT_ADAPTER: "slack",
+    //     SLACK_BOT_TOKEN: "xoxb-...",
+    //     SLACK_APP_TOKEN: "xapp-..."
+    //   }
+    // },
+    //
+    // Se um dia quiser MESMO dois WhatsApp, cada um precisa da sua pasta de auth
+    // (e de um número/QR próprio):
+    // env: { AGENT_PROFILE: "demo", CLIENT_ADAPTER: "whatsapp", WHATSAPP_AUTH_FOLDER: "auth_info_demo" }
+    //
     // Adicione aqui os bots dos clientes quando estiverem prontos:
     // {
     //   name: "renan-bot",
