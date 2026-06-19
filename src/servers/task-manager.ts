@@ -37,7 +37,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                         description: { type: "string", description: "Descrição da tarefa" },
                         dateISO: { type: "string", description: "Data da tarefa no formato YYYY-MM-DD (ex: 2025-05-25)" },
                         timeISO: { type: "string", description: "Horário da tarefa no formato HH:MM (ex: 09:00). Opcional — omita se for tarefa de dia inteiro." },
-                        notify: { type: "boolean", description: "Se true, o app vai notificar o usuário. Padrão: true quando houver horário." }
+                        notifyOption: {
+                            type: "string",
+                            enum: ["30 minutos antes", "1 hora antes", "2 horas antes", "Não exibir notificações"],
+                            description: "Quando notificar antes do horário da tarefa. Só faz sentido com timeISO. Se o usuário não pedir nada específico, OMITA este campo — o padrão é '30 minutos antes'. Use 'Não exibir notificações' se o usuário disser que não quer ser lembrado."
+                        }
                     },
                     required: ["description", "dateISO"]
                 }
@@ -97,11 +101,29 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         console.error(`[task-manager] Ferramenta chamada: ${name}`, JSON.stringify(args));
 
         if (name === "create_task") {
-            const { description, dateISO, timeISO, notify } = args as any;
+            const { description, dateISO, timeISO, notifyOption } = args as any;
 
             const taskDate = new Date(`${dateISO}T12:00:00`);
             const taskTime = timeISO ? new Date(`${dateISO}T${timeISO}:00`) : null;
-            const shouldNotify = notify ?? (timeISO ? true : false);
+
+            // Espelha o computeNotifyTime do app: notifica X antes do horário.
+            // Padrão "30 minutos antes" quando há horário e o usuário não escolhe.
+            const NOTIFY_OFFSET_MIN: Record<string, number | null> = {
+                "30 minutos antes": 30,
+                "1 hora antes": 60,
+                "2 horas antes": 120,
+                "Não exibir notificações": null,
+            };
+            const option = taskTime
+                ? (notifyOption in NOTIFY_OFFSET_MIN ? notifyOption : "30 minutos antes")
+                : "";
+            const offsetMin = taskTime ? NOTIFY_OFFSET_MIN[option] : null;
+
+            let notificationTime: Date | null = null;
+            if (taskTime && offsetMin != null) {
+                notificationTime = new Date(taskTime.getTime() - offsetMin * 60_000);
+            }
+            const shouldNotify = notificationTime != null;
 
             await db.collection('tasks').add({
                 description,
@@ -113,8 +135,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 notify: shouldNotify,
                 fullDay: !timeISO,
                 taskTime: taskTime ? Timestamp.fromDate(taskTime) : null,
-                notificationTime: taskTime ? Timestamp.fromDate(taskTime) : null,
-                notifyOption: '',
+                notificationTime: notificationTime ? Timestamp.fromDate(notificationTime) : null,
+                notifyOption: option,
                 creationDate: Timestamp.fromDate(new Date()),
                 alterationDate: Timestamp.fromDate(new Date()),
                 userId: TASK_USER_ID,
