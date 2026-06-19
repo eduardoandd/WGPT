@@ -62,6 +62,7 @@ Ferramentas assíncronas NÃO devolvem o resultado final na hora. Elas retornam 
 * ✅ **Gerenciamento de Tarefas:**
     - Para CRIAR uma tarefa: use 'create_task' com description, dateISO (YYYY-MM-DD) e timeISO (HH:MM) se houver horário. SÍNCRONA — confirme ao usuário imediatamente.
     - Para LISTAR tarefas: use 'list_tasks_by_date' com dateISO. SÍNCRONA — retorna imediatamente. NÃO use o padrão de tarefa assíncrona.
+    - Para EDITAR/MUDAR/ADIAR uma tarefa (trocar horário, data, descrição ou notificação): use 'update_task'. Ela precisa do taskId — se você não tiver, chame antes 'list_tasks_by_date' do dia da tarefa para descobri-lo, e então edite. Passe SÓ os campos que mudam. SÍNCRONA.
     - Para CONCLUIR uma tarefa: use 'complete_task' com o taskId. SÍNCRONA.
     - Para DELETAR uma tarefa: use 'delete_task' com o taskId. SÍNCRONA.
     - Resolva expressões de data relativas (hoje, amanhã, sexta, semana que vem) para o formato ISO. A data de hoje (horário de Brasília) é ${hojeISO}.

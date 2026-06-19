@@ -20,6 +20,31 @@ initializeApp({
 
 const db = getFirestore();
 
+// Espelha o computeNotifyTime do app: a notificação dispara X antes do horário
+// da tarefa. Padrão "30 minutos antes" quando há horário.
+const NOTIFY_OFFSET_MIN: Record<string, number | null> = {
+    "30 minutos antes": 30,
+    "1 hora antes": 60,
+    "2 horas antes": 120,
+    "Não exibir notificações": null,
+};
+
+const pad2 = (n: number) => n.toString().padStart(2, '0');
+
+/** Vazia quando não há horário; senão um valor válido, caindo em "30 minutos antes". */
+function resolveNotifyOption(hasTime: boolean, option: any): string {
+    if (!hasTime) return "";
+    return option in NOTIFY_OFFSET_MIN ? option : "30 minutos antes";
+}
+
+/** Instante da notificação a partir do horário da tarefa e da opção. */
+function computeNotificationTime(taskTime: Date | null, option: string): Date | null {
+    if (!taskTime) return null;
+    const offset = NOTIFY_OFFSET_MIN[option];
+    if (offset == null) return null;
+    return new Date(taskTime.getTime() - offset * 60_000);
+}
+
 const server = new Server(
     { name: "task-manager", version: "1.0.0" },
     { capabilities: { tools: {} } }
@@ -44,6 +69,25 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                         }
                     },
                     required: ["description", "dateISO"]
+                }
+            },
+            {
+                name: "update_task",
+                description: "Edita uma tarefa existente: horário, data, descrição ou notificação. Use quando o usuário pedir para mudar, adiar, trocar ou corrigir algo de uma tarefa que já existe. Forneça SOMENTE os campos que mudam — os demais são mantidos. Requer o taskId (obtenha com list_tasks_by_date).",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        taskId: { type: "string", description: "ID do documento da tarefa no Firestore (obtido via list_tasks_by_date)." },
+                        description: { type: "string", description: "Nova descrição. Omita para manter a atual." },
+                        dateISO: { type: "string", description: "Nova data no formato YYYY-MM-DD. Omita para manter a atual." },
+                        timeISO: { type: "string", description: "Novo horário no formato HH:MM. Omita para manter o atual." },
+                        notifyOption: {
+                            type: "string",
+                            enum: ["30 minutos antes", "1 hora antes", "2 horas antes", "Não exibir notificações"],
+                            description: "Nova preferência de notificação. Omita para manter a atual."
+                        }
+                    },
+                    required: ["taskId"]
                 }
             },
             {
@@ -105,25 +149,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
             const taskDate = new Date(`${dateISO}T12:00:00`);
             const taskTime = timeISO ? new Date(`${dateISO}T${timeISO}:00`) : null;
-
-            // Espelha o computeNotifyTime do app: notifica X antes do horário.
-            // Padrão "30 minutos antes" quando há horário e o usuário não escolhe.
-            const NOTIFY_OFFSET_MIN: Record<string, number | null> = {
-                "30 minutos antes": 30,
-                "1 hora antes": 60,
-                "2 horas antes": 120,
-                "Não exibir notificações": null,
-            };
-            const option = taskTime
-                ? (notifyOption in NOTIFY_OFFSET_MIN ? notifyOption : "30 minutos antes")
-                : "";
-            const offsetMin = taskTime ? NOTIFY_OFFSET_MIN[option] : null;
-
-            let notificationTime: Date | null = null;
-            if (taskTime && offsetMin != null) {
-                notificationTime = new Date(taskTime.getTime() - offsetMin * 60_000);
-            }
-            const shouldNotify = notificationTime != null;
+            const option = resolveNotifyOption(!!taskTime, notifyOption);
+            const notificationTime = computeNotificationTime(taskTime, option);
 
             await db.collection('tasks').add({
                 description,
@@ -132,7 +159,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 day: taskDate.getDate(),
                 month: taskDate.getMonth() + 1,
                 year: taskDate.getFullYear(),
-                notify: shouldNotify,
+                notify: notificationTime != null,
                 fullDay: !timeISO,
                 taskTime: taskTime ? Timestamp.fromDate(taskTime) : null,
                 notificationTime: notificationTime ? Timestamp.fromDate(notificationTime) : null,
@@ -145,6 +172,59 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             const timeLabel = timeISO ? ` às ${timeISO}` : '';
             return {
                 content: [{ type: "text", text: `Tarefa "${description}" criada com sucesso para ${dateISO}${timeLabel}.` }]
+            };
+        }
+
+        if (name === "update_task") {
+            const { taskId, description, dateISO, timeISO, notifyOption } = args as any;
+
+            const docRef = db.collection('tasks').doc(taskId);
+            const snap = await docRef.get();
+            if (!snap.exists) {
+                return { content: [{ type: "text", text: `Tarefa ${taskId} não encontrada.` }], isError: true };
+            }
+            const current = snap.data()!;
+
+            // Data efetiva: a nova, ou a atual reconstruída de day/month/year.
+            const effDate = dateISO ?? `${current.year}-${pad2(current.month)}-${pad2(current.day)}`;
+
+            // Horário efetivo: o novo; senão o atual (do taskTime); senão dia inteiro.
+            let effTime: string | null;
+            if (timeISO !== undefined) {
+                effTime = timeISO || null;
+            } else if (current.taskTime) {
+                const d = (current.taskTime as Timestamp).toDate();
+                effTime = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+            } else {
+                effTime = null;
+            }
+
+            const taskDate = new Date(`${effDate}T12:00:00`);
+            const taskTime = effTime ? new Date(`${effDate}T${effTime}:00`) : null;
+
+            // Opção de notificação: a nova, ou a atual (cai no padrão se inválida).
+            const rawOption = notifyOption !== undefined ? notifyOption : current.notifyOption;
+            const option = resolveNotifyOption(!!taskTime, rawOption);
+            const notificationTime = computeNotificationTime(taskTime, option);
+
+            await docRef.update({
+                description: description ?? current.description,
+                date: Timestamp.fromDate(taskDate),
+                day: taskDate.getDate(),
+                month: taskDate.getMonth() + 1,
+                year: taskDate.getFullYear(),
+                notify: notificationTime != null,
+                fullDay: !effTime,
+                taskTime: taskTime ? Timestamp.fromDate(taskTime) : null,
+                notificationTime: notificationTime ? Timestamp.fromDate(notificationTime) : null,
+                notifyOption: option,
+                alterationDate: Timestamp.fromDate(new Date()),
+            });
+
+            const finalDesc = description ?? current.description;
+            const timeLabel = effTime ? ` às ${effTime}` : ' (dia inteiro)';
+            return {
+                content: [{ type: "text", text: `Tarefa "${finalDesc}" atualizada para ${effDate}${timeLabel}.` }]
             };
         }
 
