@@ -43,12 +43,6 @@ export class AgentCore {
         const checkpointer = PostgresSaver.fromConnString(process.env.DATABASE_URL);
         await checkpointer.setup();
 
-        const systemPromptText = typeof this.config.systemPrompt === 'function'
-            ? this.config.systemPrompt()
-            : this.config.systemPrompt;
-
-        const systemMessage = new SystemMessage(systemPromptText);
-
         this.agent = createReactAgent({
             llm: this.config.model ?? fastModel,
             tools: this.mcpTools,
@@ -62,7 +56,13 @@ export class AgentCore {
                     includeSystem: false,
                     startOn: "human",
                 });
-                return [systemMessage, ...trimmed];
+                // Recalcula o system prompt a cada mensagem para que a data de
+                // "hoje" fique sempre atual. Se calculássemos só no boot, a data
+                // congelaria no dia da inicialização (o bot roda 24/7).
+                const systemPromptText = typeof this.config.systemPrompt === 'function'
+                    ? this.config.systemPrompt()
+                    : this.config.systemPrompt;
+                return [new SystemMessage(systemPromptText), ...trimmed];
             }
         });
 
