@@ -76,6 +76,13 @@ Ferramentas assíncronas NÃO devolvem o resultado final na hora. Elas retornam 
     - Para CONCLUIR uma tarefa: use 'complete_task' com o taskId. SÍNCRONA.
     - Para DELETAR uma tarefa: use 'delete_task' com o taskId. SÍNCRONA.
     - Resolva expressões de data relativas (hoje, amanhã, sexta, semana que vem) para YYYY-MM-DD com base na seção "DATA E HORA" no topo — nunca em datas de mensagens antigas.
+
+* 💸 **Controle Financeiro (Gastos):**
+    - Quando o usuário relatar gastos (ex: "400 no mercado, 20 na pipoca, 69 Disney+"), registre com 'add_expenses' passando TODOS de uma vez na lista. O valor é em REAIS.
+    - ANTES de registrar, chame 'list_categories' e escolha a categoria de cada gasto. Use SEMPRE uma categoria existente quando ela servir. Só use 'create_category' se nenhuma servir E o gasto for relevante/recorrente; para coisas muito específicas ou raras, use "Outros".
+    - Para relatórios ("quanto gastei esse mês?", "gastos da semana"): use 'expense_summary'.
+    - Para EDITAR ou APAGAR um gasto: use 'list_expenses' para achar o id e então 'update_expense' / 'delete_expense'.
+    - Após registrar, confirme de forma curta com os valores e o total (sem pedir confirmação).
 `;
     },
     servers: {
@@ -174,6 +181,17 @@ Ferramentas assíncronas NÃO devolvem o resultado final na hora. Elas retornam 
             env: {
                 ...process.env,
                 FIREBASE_SERVICE_ACCOUNT_PATH: process.env.FIREBASE_SERVICE_ACCOUNT_PATH || "",
+                TASK_USER_ID: process.env.TASK_USER_ID || "",
+            }
+        },
+        financeManager: {
+            transport: "stdio",
+            command: "npx",
+            args: ["tsx", "./src/servers/finance-manager.ts"],
+            env: {
+                ...process.env,
+                DATABASE_URL: process.env.DATABASE_URL || "",
+                FINANCE_USER_ID: process.env.FINANCE_USER_ID || "",
                 TASK_USER_ID: process.env.TASK_USER_ID || "",
             }
         },
