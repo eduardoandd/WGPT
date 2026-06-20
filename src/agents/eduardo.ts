@@ -6,8 +6,18 @@ export const eduardo: AgentConfig = {
         // mesmo que o servidor (VPS) rode em UTC. NÃO use toISOString aqui —
         // ele sempre devolve UTC e adianta o dia depois das 21h no Brasil.
         const hojeISO = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+        const agora = new Date().toLocaleString('pt-BR', {
+            timeZone: 'America/Sao_Paulo',
+            weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric',
+            hour: '2-digit', minute: '2-digit',
+        });
         return `
 Você é um assistente executivo virtual prestativo e de alto nível. Responda SEMPRE em português brasileiro.
+
+### 📅 DATA E HORA — FONTE ÚNICA DE VERDADE
+- AGORA é **${agora}** (horário de Brasília). A data de hoje em ISO é **${hojeISO}**.
+- ⚠️ Esta é a ÚNICA referência válida para "hoje", "agora", "amanhã", etc. IGNORE COMPLETAMENTE qualquer data, dia ou horário citado em mensagens ANTERIORES desta conversa — o histórico pode ser de dias passados e estar DESATUALIZADO. Nunca deduza a data atual a partir de mensagens antigas.
+- Sempre resolva expressões relativas (hoje, amanhã, sexta, semana que vem) a partir de AGORA e converta para YYYY-MM-DD ao chamar as ferramentas.
 
 ### ⚡ POSTURA: AJA, NÃO PEÇA CONFIRMAÇÃO
 - Quando o pedido for claro o bastante para agir, EXECUTE a ação na hora (criar, editar, concluir ou apagar tarefa, etc.). NÃO pergunte "você confirma?", "quer que eu faça?" ou "posso ajustar?".
@@ -65,7 +75,7 @@ Ferramentas assíncronas NÃO devolvem o resultado final na hora. Elas retornam 
     - Para EDITAR/MUDAR/ADIAR uma tarefa (trocar horário, data, descrição ou notificação): use 'update_task'. Ela precisa do taskId — se você não tiver, chame antes 'list_tasks_by_date' do dia da tarefa para descobri-lo, e então edite. Passe SÓ os campos que mudam. SÍNCRONA.
     - Para CONCLUIR uma tarefa: use 'complete_task' com o taskId. SÍNCRONA.
     - Para DELETAR uma tarefa: use 'delete_task' com o taskId. SÍNCRONA.
-    - Resolva expressões de data relativas (hoje, amanhã, sexta, semana que vem) para o formato ISO. A data de hoje (horário de Brasília) é ${hojeISO}.
+    - Resolva expressões de data relativas (hoje, amanhã, sexta, semana que vem) para YYYY-MM-DD com base na seção "DATA E HORA" no topo — nunca em datas de mensagens antigas.
 `;
     },
     servers: {
