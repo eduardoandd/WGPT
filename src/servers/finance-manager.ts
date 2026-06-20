@@ -136,7 +136,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
                                 descricao: { type: "string", description: "Descrição curta (ex: 'mercado', 'Disney+')." },
                                 categoria: { type: "string", description: "Nome da categoria (deve existir em list_categories; se não existir, cai em 'Outros')." },
                                 dataISO: { type: "string", description: "Data do gasto YYYY-MM-DD. Omita para hoje." },
-                                metodo: { type: "string", description: "Forma de pagamento (pix, crédito, débito, dinheiro). Opcional." },
+                                metodo: {
+                                    type: "string",
+                                    enum: ["Crédito", "Débito", "VR", "Pix", "Dinheiro"],
+                                    description: "Forma de pagamento, se o usuário mencionar. 'VR' = vale-refeição/vale-alimentação. Omita se ele não disser.",
+                                },
                             },
                             required: ["valor", "descricao", "categoria"],
                         },
@@ -168,7 +172,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
                     descricao: { type: "string", description: "Nova descrição. Omita para manter." },
                     categoria: { type: "string", description: "Nova categoria (nome). Omita para manter." },
                     dataISO: { type: "string", description: "Nova data YYYY-MM-DD. Omita para manter." },
-                    metodo: { type: "string", description: "Nova forma de pagamento. Omita para manter." },
+                    metodo: {
+                        type: "string",
+                        enum: ["Crédito", "Débito", "VR", "Pix", "Dinheiro"],
+                        description: "Nova forma de pagamento. Omita para manter.",
+                    },
                 },
                 required: ["id"],
             },
@@ -186,12 +194,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         {
             name: "expense_summary",
-            description: "Resumo de gastos por período: total geral e quebra por categoria. Use para 'quanto gastei esse mês?', 'gastos da semana', etc. Padrão: do início do mês atual até hoje.",
+            description: "Resumo de gastos por período: total geral e quebra por categoria (padrão) ou por forma de pagamento. Use para 'quanto gastei esse mês?', 'gastos da semana', 'quanto foi no crédito?', etc. Padrão de período: do início do mês atual até hoje.",
             inputSchema: {
                 type: "object",
                 properties: {
                     startDateISO: { type: "string", description: "Início YYYY-MM-DD. Omita para o 1º dia do mês atual." },
                     endDateISO: { type: "string", description: "Fim YYYY-MM-DD. Omita para hoje." },
+                    groupBy: { type: "string", enum: ["categoria", "metodo"], description: "Como agrupar. Padrão 'categoria'. Use 'metodo' quando o usuário perguntar por forma de pagamento (crédito, débito, VR...)." },
                 },
                 required: [],
             },
@@ -285,7 +294,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             }
             const linhas = r.rows.map((e) => {
                 const auto = e.origem === "auto" ? " (auto)" : "";
-                return `[${e.id}] ${e.data} ${e.emoji ?? ""} ${formatBRL(e.valor_centavos)} — ${e.descricao} (${e.categoria ?? "Outros"})${auto}`;
+                const met = e.metodo ? ` · ${e.metodo}` : "";
+                return `[${e.id}] ${e.data} ${e.emoji ?? ""} ${formatBRL(e.valor_centavos)} — ${e.descricao} (${e.categoria ?? "Outros"})${met}${auto}`;
             });
             const total = r.rows.reduce((s, e) => s + e.valor_centavos, 0);
             return { content: [{ type: "text", text: `${linhas.join("\n")}\n\nTotal: ${formatBRL(total)}` }] };
@@ -328,21 +338,31 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (name === "expense_summary") {
             const start = a.startDateISO || monthStartISO();
             const end = a.endDateISO || hojeISO();
-            const r = await pool.query(
-                `SELECT c.nome AS categoria, c.emoji, SUM(e.valor_centavos)::int AS total, COUNT(*)::int AS qtd
-                 FROM expenses e LEFT JOIN categories c ON e.categoria_id = c.id
-                 WHERE e.user_id = $1 AND e.data BETWEEN $2 AND $3
-                 GROUP BY c.nome, c.emoji
-                 ORDER BY total DESC`,
-                [USER_ID, start, end]
-            );
+            const porMetodo = a.groupBy === "metodo";
+
+            const sql = porMetodo
+                ? `SELECT COALESCE(e.metodo, 'Não informado') AS rotulo, '' AS emoji,
+                          SUM(e.valor_centavos)::int AS total, COUNT(*)::int AS qtd
+                   FROM expenses e
+                   WHERE e.user_id = $1 AND e.data BETWEEN $2 AND $3
+                   GROUP BY COALESCE(e.metodo, 'Não informado')
+                   ORDER BY total DESC`
+                : `SELECT COALESCE(c.nome, 'Outros') AS rotulo, COALESCE(c.emoji, '') AS emoji,
+                          SUM(e.valor_centavos)::int AS total, COUNT(*)::int AS qtd
+                   FROM expenses e LEFT JOIN categories c ON e.categoria_id = c.id
+                   WHERE e.user_id = $1 AND e.data BETWEEN $2 AND $3
+                   GROUP BY c.nome, c.emoji
+                   ORDER BY total DESC`;
+
+            const r = await pool.query(sql, [USER_ID, start, end]);
             if (r.rows.length === 0) {
                 return { content: [{ type: "text", text: `Nenhum gasto entre ${start} e ${end}.` }] };
             }
             const grand = r.rows.reduce((s, x) => s + x.total, 0);
-            const linhas = r.rows.map((x) => `${x.emoji ?? ""} ${x.categoria ?? "Outros"}: ${formatBRL(x.total)} (${x.qtd}x)`);
+            const titulo = porMetodo ? "por forma de pagamento" : "por categoria";
+            const linhas = r.rows.map((x) => `${x.emoji ? x.emoji + " " : ""}${x.rotulo}: ${formatBRL(x.total)} (${x.qtd}x)`);
             return {
-                content: [{ type: "text", text: `Período ${start} a ${end}\n\n${linhas.join("\n")}\n\nTotal geral: ${formatBRL(grand)}` }],
+                content: [{ type: "text", text: `Período ${start} a ${end} (${titulo})\n\n${linhas.join("\n")}\n\nTotal geral: ${formatBRL(grand)}` }],
             };
         }
 
