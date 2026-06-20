@@ -12,6 +12,20 @@ module.exports = {
         TZ: "America/Sao_Paulo"
       }
     },
+    {
+      // Job diário de assinaturas: lança os gastos recorrentes e enfileira o
+      // toque na outbox (o eduardo-bot entrega). Roda 1x e sai; o cron_restart
+      // do PM2 dispara de novo no horário. NÃO mantém WhatsApp aberto.
+      name: "finance-cron",
+      script: "npx",
+      args: "tsx src/jobs/subscription-runner.ts",
+      autorestart: false,
+      // 11:00 UTC = 08:00 America/Sao_Paulo (Brasil sem horário de verão).
+      cron_restart: "0 11 * * *",
+      env: {
+        TZ: "America/Sao_Paulo"
+      }
+    },
     // ⚠️ NÃO rode dois bots de WhatsApp sem WHATSAPP_AUTH_FOLDER diferente —
     // eles compartilham a mesma sessão e respondem cada mensagem em dobro.
     // O profile "demo" foi feito para o Slack (veja o script dev:slack):

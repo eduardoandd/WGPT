@@ -7,6 +7,8 @@ import { SlackAdapter } from "./clients/slack.js";
 import { ClientAdapter } from "./core/types.js";
 import { AGENT_PROFILES } from "./agents/index.js";
 import { getDb } from "./utils/database.js";
+import { createFinancePool } from "./utils/finance-db.js";
+import { startOutboxPoller } from "./jobs/outbox-poller.js";
 
 // AGENT_PROFILE=eduardo  CLIENT_ADAPTER=whatsapp   → npm run dev
 // AGENT_PROFILE=eduardo  CLIENT_ADAPTER=cli         → npm run dev:cli
@@ -67,6 +69,16 @@ async function start() {
         await adapter.start(async (msg) => {
             await core.processMessage(msg, adapter);
         });
+
+        // Poller do outbox: entrega os avisos de assinatura (lançados pelo job
+        // separado) pelo WhatsApp. Só no canal whatsapp, que é onde há chat_id.
+        if (channelName === 'whatsapp') {
+            try {
+                startOutboxPoller(createFinancePool(), adapter);
+            } catch (err) {
+                console.error("⚠️ Não foi possível iniciar o outbox poller:", err);
+            }
+        }
 
     } catch (error) {
         console.error("💥 Erro crítico ao iniciar:", error);

@@ -83,6 +83,7 @@ Ferramentas assíncronas NÃO devolvem o resultado final na hora. Elas retornam 
     - Forma de pagamento (crédito, débito, VR, pix, dinheiro) é OPCIONAL: preencha 'metodo' só se o usuário mencionar; se ele não falar, deixe sem.
     - Para relatórios ("quanto gastei esse mês?", "gastos da semana"): use 'expense_summary'. Se a pergunta for sobre forma de pagamento ("quanto foi no crédito?"), use groupBy "metodo".
     - Para EDITAR ou APAGAR um gasto: use 'list_expenses' para achar o id e então 'update_expense' / 'delete_expense'.
+    - ASSINATURAS/recorrentes (ex: "Disney+ 69 todo mês", "Spotify 20 reais por mês"): use 'create_subscription' (NÃO 'add_expenses'). O sistema lança o gasto sozinho todo mês no dia da cobrança. Se o usuário não disser o dia, omita e o padrão é o dia de hoje. Para ver/editar/cancelar: 'list_subscriptions', 'update_subscription', 'cancel_subscription'.
     - Após registrar, confirme de forma curta com os valores e o total (sem pedir confirmação).
 `;
     },
