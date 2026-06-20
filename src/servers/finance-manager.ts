@@ -9,6 +9,7 @@ import {
     hojeISO,
     monthStartISO,
     formatBRL,
+    pad2,
 } from "../utils/finance-db.js";
 
 const USER_ID = FINANCE_USER_ID;
@@ -351,18 +352,30 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (name === "create_subscription") {
             const centavos = Math.round(Number(a.valor) * 100);
             const catId = await categoriaIdOrOutros(a.categoria);
+            const today = hojeISO();
             // Dia padrão = dia de hoje (Brasília) quando o usuário não informa.
-            let dia = a.diaCobranca != null ? Math.trunc(Number(a.diaCobranca)) : Number(hojeISO().slice(8, 10));
+            let dia = a.diaCobranca != null ? Math.trunc(Number(a.diaCobranca)) : Number(today.slice(8, 10));
             if (dia < 1) dia = 1;
             if (dia > 31) dia = 31;
+
+            // Se a data de cobrança deste mês JÁ passou (ou é hoje), marca como
+            // "já tratado este mês" para a 1ª cobrança automática cair só no mês
+            // que vem — evita uma cobrança retroativa surpresa.
+            const [y, m] = today.split("-").map(Number);
+            const lastDay = new Date(y, m, 0).getDate();
+            const dueDay = Math.min(dia, lastDay);
+            const dueDate = `${y}-${pad2(m)}-${pad2(dueDay)}`;
+            const ultima = today >= dueDate ? dueDate : null;
+
             const r = await pool.query(
-                `INSERT INTO subscriptions (user_id, descricao, valor_centavos, categoria_id, dia_cobranca, metodo)
-                 VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-                [USER_ID, a.descricao, centavos, catId, dia, a.metodo ?? null]
+                `INSERT INTO subscriptions (user_id, descricao, valor_centavos, categoria_id, dia_cobranca, metodo, ultima_cobranca)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+                [USER_ID, a.descricao, centavos, catId, dia, a.metodo ?? null, ultima]
             );
             const met = a.metodo ? ` · ${a.metodo}` : "";
+            const proxima = ultima ? `no mês que vem, dia ${dia}` : `dia ${dueDate}`;
             return {
-                content: [{ type: "text", text: `Assinatura "${a.descricao}" criada (id ${r.rows[0].id}): ${formatBRL(centavos)}/mês, todo dia ${dia}${met}. Será lançada automaticamente.` }],
+                content: [{ type: "text", text: `Assinatura "${a.descricao}" criada (id ${r.rows[0].id}): ${formatBRL(centavos)}/mês, todo dia ${dia}${met}. Próxima cobrança automática: ${proxima}.` }],
             };
         }
 
