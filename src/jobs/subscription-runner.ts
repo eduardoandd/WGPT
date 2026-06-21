@@ -112,8 +112,15 @@ async function run(): Promise<void> {
     }
 
     console.log(`🏁 subscription-runner: ${lancadas} assinatura(s) lançada(s) em ${today}${force ? " (teste)" : ""}.`);
-    await pool.end();
+    // Fecha o pool sem bloquear a saída (se a conexão demorar a fechar, não
+    // queremos segurar o processo vivo — é um job one-shot).
+    void pool.end().catch(() => {});
 }
+
+// Rede de segurança: garante que o processo encerra mesmo se algum handle
+// (ex: socket do Postgres) ficar pendurado. unref() evita que o próprio
+// timer mantenha o processo vivo.
+setTimeout(() => process.exit(0), 10000).unref();
 
 run()
     .then(() => process.exit(0))
