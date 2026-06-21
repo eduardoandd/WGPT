@@ -9,7 +9,8 @@
     "dev:slack": "cross-env AGENT_PROFILE=demo CLIENT_ADAPTER=slack tsx src/index.ts",
     "dev:slack:fresh": "cross-env AGENT_PROFILE=demo-v2 CLIENT_ADAPTER=slack tsx src/index.ts",
     "build": "tsc",
-    "start": "node build/index.js"
+    "start": "node build/index.js",
+    "finance:cron": "tsx src/jobs/subscription-runner.ts"
   },
   "keywords": [],
   "author": "",
